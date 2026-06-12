@@ -1,5 +1,6 @@
 .DS_Store
 .idea/*
+.dbg
 
 Thumbs.db
 /build
@@ -12,3 +13,6 @@ cmake-build-release
 
 .idea
 .svn
+
+
+*.class

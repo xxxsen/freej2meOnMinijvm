@@ -46,6 +46,29 @@ class BufferedImageGraphics extends Graphics2D {
         transX = transY = 0;
     }
 
+    private static void writePixel(byte[] data, int pixelIndex, int argb) {
+        int alpha = (argb >>> 24) & 0xff;
+        if (alpha == 0) {
+            return;
+        }
+        int offset = pixelIndex * CELL_BYTES;
+        int blue = argb & 0xff;
+        int green = (argb >>> 8) & 0xff;
+        int red = (argb >>> 16) & 0xff;
+        if (alpha == 0xff) {
+            data[offset] = (byte) blue;
+            data[offset + 1] = (byte) green;
+            data[offset + 2] = (byte) red;
+            data[offset + 3] = (byte) alpha;
+            return;
+        }
+        float factor = alpha / 255f;
+        float inverse = 1f - factor;
+        data[offset] = (byte) (blue * factor + inverse * (data[offset] & 0xff));
+        data[offset + 1] = (byte) (green * factor + inverse * (data[offset + 1] & 0xff));
+        data[offset + 2] = (byte) (red * factor + inverse * (data[offset + 2] & 0xff));
+    }
+
     public synchronized void fillRect(int x, int y, int w, int h) {
         x += transX;
         y += transY;
@@ -187,6 +210,7 @@ class BufferedImageGraphics extends Graphics2D {
         y1 += transY;
         x2 += transX;
         y2 += transY;
+        //byte[] data = bimg.getData().array();
         if (x1 == x2) {// 垂直
             if (x1 < clipX || x1 > clipX + clipW) {
                 return;
@@ -204,6 +228,7 @@ class BufferedImageGraphics extends Graphics2D {
             }
             for (int i = y1; i <= y2; i++) {
                 GLMath.img_fill(bimg.getData().array(), i * bimg.getWidth() + x1, 1, curColor);
+                //writePixel(data, i * bimg.getWidth() + x1, curColor);
             }
         } else if (y1 == y2) { // 水平
             if (y1 < clipY || y1 > clipY + clipH) {
@@ -246,6 +271,7 @@ class BufferedImageGraphics extends Graphics2D {
                     int ty = (y1 + ((y2 - y1) * (i - x1) / (x2 - x1)));
                     if (ty < clipY || ty > cy2) continue;
                     GLMath.img_fill(bimg.getData().array(), ty * imgW + i, 1, curColor);
+                    //writePixel(data, ty * imgW + i, curColor);
                 }
             } else {
                 int sy, ey;
@@ -266,6 +292,7 @@ class BufferedImageGraphics extends Graphics2D {
                     int tx = (x1 + ((x2 - x1) * (i - y1) / (y2 - y1)));
                     if (tx < clipX || tx > cx2) continue;
                     GLMath.img_fill(bimg.getData().array(), i * imgW + tx, 1, curColor);
+                    //writePixel(data, i * imgW + tx, curColor);
                 }
             }
         }

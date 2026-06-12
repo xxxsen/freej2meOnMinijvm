@@ -1,6 +1,5 @@
 package java.awt.image;
 
-import org.mini.gl.GLMath;
 import org.mini.gui.GImage;
 import org.mini.gui.ImageMutable;
 
@@ -51,6 +50,29 @@ public class BufferedImage extends java.awt.Image implements WritableRenderedIma
     int imageType;
 
     static final byte BYTE_PER_PIXEL = 4;
+
+    private static int nativeToArgb(int color) {
+        int nc = (0xff000000 & color);
+        nc |= (color >> 16) & 0xff;
+        nc |= (color) & 0x0000ff00;
+        nc |= (color & 0xff) << 16;
+        return nc;
+    }
+
+    private static int argbToNative(int color) {
+        int nc = (0xff000000 & color);
+        nc |= (color >> 16) & 0xff;
+        nc |= (color) & 0x0000ff00;
+        nc |= (color & 0xff) << 16;
+        return nc;
+    }
+
+    private static void writeArgb(byte[] data, int byteOffset, int argb) {
+        data[byteOffset] = (byte) (argb & 0xff);
+        data[byteOffset + 1] = (byte) ((argb >>> 8) & 0xff);
+        data[byteOffset + 2] = (byte) ((argb >>> 16) & 0xff);
+        data[byteOffset + 3] = (byte) ((argb >>> 24) & 0xff);
+    }
 
 
     public BufferedImage(int width,
@@ -135,11 +157,15 @@ public class BufferedImage extends java.awt.Image implements WritableRenderedIma
     public void setRGB(int startX, int startY, int w, int h, int[] argbArray, int offset, int scanlength) {
 
         int imgW = gimg.getWidth();
+        byte[] data = getData().array();
         synchronized (gimg) {
             for (int y = startY, ymax = startY + h; y < ymax; y++) {
+                int srcRow = offset + (y - startY) * scanlength;
+                int dstOffset = (y * imgW + startX) * BYTE_PER_PIXEL;
                 for (int x = startX, xmax = startX + w; x < xmax; x++) {
-                    int pixel = argbArray[offset + (y - startY) * scanlength + (x - startX)];
-                    GLMath.img_fill(getData().array(), y * imgW + x, 1, pixel);
+                    int pixel = argbArray[srcRow + (x - startX)];
+                    writeArgb(data, dstOffset, pixel);
+                    dstOffset += BYTE_PER_PIXEL;
                 }
             }
         }
@@ -155,12 +181,7 @@ public class BufferedImage extends java.awt.Image implements WritableRenderedIma
      * @param c
      */
     public void setRGB(int startX, int startY, int c) {
-        //argb ->abgr
-        int nc = (0xff000000 & c);//a
-        nc |= (c >> 16) & 0xff;//r
-        nc |= (c) & 0x0000ff00;//g
-        nc |= (c & 0xff) << 16;//b
-        gimg.setPix(startY, startX, nc);
+        gimg.setPix(startY, startX, argbToNative(c));
     }
 
     public int[] getRGB(int x, int y, int width, int height, int[] pixels, int offset, int scanlength) {
@@ -168,18 +189,20 @@ public class BufferedImage extends java.awt.Image implements WritableRenderedIma
         int tgtX = offset % scanlength;
         int tgtW = scanlength;
         int tgtH = pixels.length / scanlength;
-        for (int j = y; j < height && j < gimg.getHeight() && tgtY < tgtH; j++, tgtY++) {
+        int endY = y + height;
+        int endX = x + width;
+        for (int j = y; j < endY && j < gimg.getHeight() && tgtY < tgtH; j++, tgtY++) {
             int dx = tgtX;
             int tgtRowStart = tgtY * scanlength;
-            for (int i = x; i < width && i < gimg.getWidth() && dx < tgtW; i++, dx++) {
-                pixels[tgtRowStart + dx] = gimg.getPix(j, i);
+            for (int i = x; i < endX && i < gimg.getWidth() && dx < tgtW; i++, dx++) {
+                pixels[tgtRowStart + dx] = nativeToArgb(gimg.getPix(j, i));
             }
         }
         return pixels;
     }
 
     public int getRGB(int x, int y) {
-        return gimg.getPix(y, x);
+        return nativeToArgb(gimg.getPix(y, x));
     }
 
     public ByteBuffer getData() {

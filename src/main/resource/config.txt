@@ -3,5 +3,5 @@ app=com.ebsee.emu.J2meEmu
 icon=/j2meemu.png
 orientation=v
 desc=J2ME Emulator.
-version=1.0.0.10
+version=1.0.0.28
 upgradeurl=http://down.ysbit.cn/static/apps/j2meemu.jar

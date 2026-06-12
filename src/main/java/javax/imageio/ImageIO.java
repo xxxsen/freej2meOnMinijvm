@@ -35,10 +35,19 @@ public class ImageIO {
             baos.write(k, 0, r);
         }
         k = baos.toByteArray();
+        if (k.length == 0) {
+            throw new IOException("image stream is empty");
+        }
         int[] whd = {0, 0, 0};
         byte[] b = GLUtil.image_parse_from_file_content(k, whd);
+        if (b == null) {
+            throw new IOException("image decode failed");
+        }
 
         int bitdepth = whd[2];
+        if (whd[0] <= 0 || whd[1] <= 0) {
+            throw new IOException("invalid image size: " + whd[0] + "x" + whd[1]);
+        }
         BufferedImage img = new BufferedImage(whd[0], whd[1], BufferedImage.TYPE_INT_ARGB);
         if (bitdepth == 4) {//argb
             img.getData().put(b);
@@ -61,7 +70,7 @@ public class ImageIO {
                 }
             }
         } else {
-            throw new RuntimeException("unknow image type");
+            throw new IOException("unknown image type: " + bitdepth);
         }
 
         return img;
