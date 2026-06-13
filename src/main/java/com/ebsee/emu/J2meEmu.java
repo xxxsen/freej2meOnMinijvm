@@ -31,7 +31,6 @@ public class J2meEmu extends GApplication implements XuiAppHolder {
 
     @Override
     public void onInit() {
-
         Glfm.glfmSetSupportedInterfaceOrientation(GCallBack.getInstance().getDisplay(), Glfm.GLFMInterfaceOrientationPortrait);
         Glfm.glfmSetDisplayChrome(GCallBack.getInstance().getDisplay(), Glfm.GLFMUserInterfaceChromeFullscreen);
         gform = new EmuForm(this);

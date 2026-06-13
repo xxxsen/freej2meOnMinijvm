@@ -9,7 +9,8 @@ import org.mini.gui.event.GChildrenListener;
 import java.awt.*;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseEvent;
-import java.util.function.Predicate;
+import java.util.ArrayList;
+import java.util.List;
 
 public class EmuForm extends GForm implements GChildrenListener {
     J2meEmu app;
@@ -43,12 +44,15 @@ public class EmuForm extends GForm implements GChildrenListener {
     public void removeAllButtons() {
         GForm form = getForm();
         if (form != null) {
-            form.getElements().removeIf(new Predicate<GObject>() {
-                @Override
-                public boolean test(GObject gObject) {
-                    return gObject instanceof GButton;
+            List<GObject> buttons = new ArrayList<>();
+            for (GObject gObject : form.getElements()) {
+                if (gObject instanceof GButton) {
+                    buttons.add(gObject);
                 }
-            });
+            }
+            for (GObject button : buttons) {
+                form.remove(button);
+            }
         }
     }
 

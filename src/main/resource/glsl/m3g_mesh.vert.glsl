@@ -3,27 +3,136 @@
 precision mediump float;
 #endif
 
+const int MAX_GPU_LIGHTS = 4;
+
 layout(location = 0) in vec3 aPosition;
-layout(location = 1) in vec4 aColor;
-layout(location = 2) in vec2 aTexCoord0;
-layout(location = 3) in vec2 aTexCoord1;
+layout(location = 1) in vec3 aNormal;
+layout(location = 2) in vec4 aColor;
+layout(location = 3) in vec2 aTexCoord0;
+layout(location = 4) in vec2 aTexCoord1;
 
 uniform mat4 uMvp;
+uniform mat4 uModel;
 uniform mat4 uModelView;
 uniform float uDepthRangeScale;
 uniform float uDepthRangeBias;
+uniform int uLightingEnabled;
+uniform int uHasVertexColor;
+uniform int uVertexColorTracking;
+uniform vec4 uBaseColor;
+uniform vec4 uMaterialAmbient;
+uniform vec4 uMaterialDiffuse;
+uniform vec4 uMaterialEmissive;
+uniform vec4 uMaterialSpecular;
+uniform float uMaterialShininess;
+uniform vec4 uCameraWorldPos;
+uniform int uLightCount;
+uniform int uLightMode[MAX_GPU_LIGHTS];
+uniform vec4 uLightColor[MAX_GPU_LIGHTS];
+uniform vec4 uLightPosition[MAX_GPU_LIGHTS];
+uniform vec4 uLightDirection[MAX_GPU_LIGHTS];
+uniform vec4 uLightAttenuation[MAX_GPU_LIGHTS];
+uniform vec4 uLightSpot[MAX_GPU_LIGHTS];
+uniform mat4 uTextureMatrix0;
+uniform mat4 uTextureMatrix1;
 
 out vec4 vColor;
 out vec2 vTexCoord0;
 out vec2 vTexCoord1;
 out float vFogDistance;
 
+vec4 computeLitColor(vec3 worldPosition, vec3 worldNormal, vec4 trackedColor) {
+    vec3 normal = normalize(worldNormal);
+    if (length(normal) <= 0.0) {
+        return trackedColor;
+    }
+
+    vec3 ambientAccum = vec3(0.0);
+    vec3 diffuseAccum = vec3(0.0);
+    vec3 specularAccum = vec3(0.0);
+    vec3 viewDir = normalize(uCameraWorldPos.xyz - worldPosition);
+    if (length(viewDir) <= 0.0) {
+        viewDir = vec3(0.0, 0.0, 1.0);
+    }
+
+    for (int i = 0; i < MAX_GPU_LIGHTS; i++) {
+        if (i >= uLightCount) {
+            break;
+        }
+        vec3 lightColor = uLightColor[i].rgb;
+        if (uLightMode[i] == 128) {
+            ambientAccum += lightColor;
+            continue;
+        }
+
+        vec3 lightDir;
+        float attenuation = 1.0;
+        float spotFactor = 1.0;
+        if (uLightMode[i] == 130 || uLightMode[i] == 131) {
+            vec3 delta = uLightPosition[i].xyz - worldPosition;
+            float distanceValue = length(delta);
+            if (distanceValue <= 0.000001) {
+                continue;
+            }
+            lightDir = delta / distanceValue;
+            float denominator = uLightAttenuation[i].x
+                + uLightAttenuation[i].y * distanceValue
+                + uLightAttenuation[i].z * distanceValue * distanceValue;
+            if (denominator > 0.000001) {
+                attenuation = 1.0 / denominator;
+            }
+            if (uLightMode[i] == 131) {
+                vec3 spotDir = normalize(uLightDirection[i].xyz);
+                float cosTheta = -dot(lightDir, spotDir);
+                float cutoff = uLightSpot[i].x;
+                if (cutoff >= 0.0 && cosTheta < cutoff) {
+                    continue;
+                }
+                spotFactor = pow(max(0.0, cosTheta), max(0.0, uLightSpot[i].y));
+            }
+        } else {
+            lightDir = normalize(uLightDirection[i].xyz);
+        }
+
+        float ndotl = dot(normal, lightDir);
+        if (ndotl > 0.0) {
+            float lightingScale = attenuation * spotFactor;
+            diffuseAccum += lightColor * ndotl * lightingScale;
+            if (uMaterialShininess > 0.0 && length(uMaterialSpecular.rgb) > 0.0) {
+                vec3 halfVector = normalize(lightDir + viewDir);
+                float ndoth = max(0.0, dot(normal, halfVector));
+                if (ndoth > 0.0) {
+                    specularAccum += lightColor * pow(ndoth, max(1.0, uMaterialShininess)) * lightingScale;
+                }
+            }
+        }
+    }
+
+    vec4 diffuseColor = uVertexColorTracking != 0 ? trackedColor : uMaterialDiffuse;
+    vec3 ambientColor = uVertexColorTracking != 0 ? trackedColor.rgb : uMaterialAmbient.rgb;
+    vec3 color = uMaterialEmissive.rgb
+        + ambientColor * ambientAccum
+        + diffuseColor.rgb * diffuseAccum
+        + uMaterialSpecular.rgb * specularAccum;
+    return vec4(clamp(color, 0.0, 1.0), diffuseColor.a);
+}
+
 void main() {
-    vec4 eyePosition = uModelView * vec4(aPosition, 1.0);
-    gl_Position = uMvp * vec4(aPosition, 1.0);
+    vec4 localPosition = vec4(aPosition, 1.0);
+    vec4 worldPosition = uModel * localPosition;
+    vec3 worldNormal = normalize((uModel * vec4(aNormal, 0.0)).xyz);
+    vec4 trackedColor = aColor;
+    vec4 baseColor = uHasVertexColor != 0 ? trackedColor : uBaseColor;
+    vec4 finalColor = baseColor;
+    if (uLightingEnabled != 0) {
+        finalColor = computeLitColor(worldPosition.xyz, worldNormal, trackedColor);
+    }
+
+    vec4 eyePosition = uModelView * localPosition;
+    gl_Position = uMvp * localPosition;
     gl_Position.z = gl_Position.z * uDepthRangeScale + gl_Position.w * uDepthRangeBias;
-    vColor = aColor;
-    vTexCoord0 = aTexCoord0;
-    vTexCoord1 = aTexCoord1;
+    vColor = finalColor;
+    vTexCoord0 = (uTextureMatrix0 * vec4(aTexCoord0, 0.0, 1.0)).xy;
+    vTexCoord1 = (uTextureMatrix1 * vec4(aTexCoord1, 0.0, 1.0)).xy;
     vFogDistance = length(eyePosition.xyz);
 }

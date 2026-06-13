@@ -166,20 +166,20 @@ public final class MiniJvmGraphics3DFactory implements Graphics3D.BackendFactory
 			}
 		}
 
-		public void render(VertexBuffer vertices, TriangleStripArray triangles, Appearance appearance, Transform transform)
+		public void render(Mesh mesh, int submeshIndex, VertexBuffer vertices, TriangleStripArray triangles, Appearance appearance, Transform transform)
 		{
 			if (frame.softwarePassthrough)
 			{
-				softwareFallback.render(vertices, triangles, appearance, transform);
+				softwareFallback.render(mesh, submeshIndex, vertices, triangles, appearance, transform);
 				return;
 			}
 			if (!glAvailable)
 			{
-				softwareFallback.render(vertices, triangles, appearance, transform);
+				softwareFallback.render(mesh, submeshIndex, vertices, triangles, appearance, transform);
 				return;
 			}
 
-			RenderItem item = new RenderItem(vertices, triangles, appearance, copyTransform(transform));
+			RenderItem item = new RenderItem(mesh, submeshIndex, vertices, triangles, appearance, copyTransform(transform));
 			frame.items.addElement(item);
 			if (!frame.clearCalled)
 			{
@@ -221,7 +221,6 @@ public final class MiniJvmGraphics3DFactory implements Graphics3D.BackendFactory
 
 		public void releaseTarget()
 		{
-			long releaseStartNs = System.nanoTime();
 			if (frame.softwarePassthrough)
 			{
 				frame.reset();
@@ -285,7 +284,7 @@ public final class MiniJvmGraphics3DFactory implements Graphics3D.BackendFactory
 			for (int i = 0; i < frame.items.size(); i++)
 			{
 				RenderItem item = frame.items.elementAt(i);
-				softwareFallback.render(item.vertices, item.triangles, item.appearance, item.transform);
+				softwareFallback.render(item.mesh, item.submeshIndex, item.vertices, item.triangles, item.appearance, item.transform);
 			}
 		}
 
@@ -400,14 +399,18 @@ public final class MiniJvmGraphics3DFactory implements Graphics3D.BackendFactory
 
 	private static final class RenderItem
 	{
+		private final Mesh mesh;
+		private final int submeshIndex;
 		private final VertexBuffer vertices;
 		private final SkinnedMesh skinnedMesh;
 		private final TriangleStripArray triangles;
 		private final Appearance appearance;
 		private final Transform transform;
 
-		RenderItem(VertexBuffer vertices, TriangleStripArray triangles, Appearance appearance, Transform transform)
+		RenderItem(Mesh mesh, int submeshIndex, VertexBuffer vertices, TriangleStripArray triangles, Appearance appearance, Transform transform)
 		{
+			this.mesh = mesh;
+			this.submeshIndex = submeshIndex;
 			this.vertices = vertices;
 			this.skinnedMesh = null;
 			this.triangles = triangles;
@@ -417,6 +420,8 @@ public final class MiniJvmGraphics3DFactory implements Graphics3D.BackendFactory
 
 		private RenderItem(SkinnedMesh skinnedMesh, TriangleStripArray triangles, Appearance appearance, Transform transform)
 		{
+			this.mesh = skinnedMesh;
+			this.submeshIndex = -1;
 			this.vertices = skinnedMesh.getVertexBuffer();
 			this.skinnedMesh = skinnedMesh;
 			this.triangles = triangles;
@@ -441,6 +446,119 @@ public final class MiniJvmGraphics3DFactory implements Graphics3D.BackendFactory
 			this.vertices = vertices;
 			this.vertexCount = vertexCount;
 			this.texturedUnits = texturedUnits;
+		}
+	}
+
+	private static final class MeshGeometryData
+	{
+		private final float[] vertices;
+		private final int vertexCount;
+		private final boolean[] texCoordUnits;
+		private final boolean hasVertexColor;
+		private final boolean hasNormals;
+
+		MeshGeometryData(float[] vertices, int vertexCount, boolean[] texCoordUnits, boolean hasVertexColor, boolean hasNormals)
+		{
+			this.vertices = vertices;
+			this.vertexCount = vertexCount;
+			this.texCoordUnits = texCoordUnits;
+			this.hasVertexColor = hasVertexColor;
+			this.hasNormals = hasNormals;
+		}
+	}
+
+	private static final class GeometryKey
+	{
+		private final boolean useMeshAnchor;
+		private final Object anchor;
+		private final int submeshIndex;
+		private final VertexBuffer vertices;
+		private final TriangleStripArray triangles;
+
+		GeometryKey(RenderItem item)
+		{
+			boolean stableMeshAnchor = item.mesh != null;
+			this.useMeshAnchor = stableMeshAnchor;
+			this.anchor = stableMeshAnchor ? item.mesh : item.vertices;
+			this.submeshIndex = stableMeshAnchor ? item.submeshIndex : -1;
+			this.vertices = item.vertices;
+			this.triangles = item.triangles;
+		}
+
+		public int hashCode()
+		{
+			int hash = System.identityHashCode(anchor) * 31 + submeshIndex;
+			if (!useMeshAnchor)
+			{
+				hash = hash * 31 + System.identityHashCode(vertices);
+				hash = hash * 31 + System.identityHashCode(triangles);
+			}
+			return hash;
+		}
+
+		public boolean equals(Object object)
+		{
+			if (!(object instanceof GeometryKey))
+			{
+				return false;
+			}
+			GeometryKey other = (GeometryKey) object;
+			if (other.anchor != anchor || other.submeshIndex != submeshIndex || other.useMeshAnchor != useMeshAnchor)
+			{
+				return false;
+			}
+			if (useMeshAnchor)
+			{
+				return true;
+			}
+			return other.vertices == vertices && other.triangles == triangles;
+		}
+	}
+
+	private static final class MeshGeometry
+	{
+		private final int[] vbo = new int[] { 0 };
+		private int vertexCount;
+		private boolean[] texCoordUnits = new boolean[GlRenderer.TEXTURE_UNIT_COUNT];
+		private boolean hasVertexColor;
+		private boolean hasNormals;
+		private int vertexBufferRevision = -1;
+		private VertexArray positions;
+		private int positionsRevision = -1;
+		private VertexArray normals;
+		private int normalsRevision = -1;
+		private VertexArray colors;
+		private int colorsRevision = -1;
+		private final VertexArray[] texCoords = new VertexArray[GlRenderer.TEXTURE_UNIT_COUNT];
+		private final int[] texCoordRevisions = new int[] { -1, -1 };
+		private int morphStateHash = Integer.MIN_VALUE;
+	}
+
+	private static final class GeometryCacheEntry
+	{
+		private final Mesh mesh;
+		private final VertexBuffer vertices;
+		private final TriangleStripArray triangles;
+		private final int submeshIndex;
+		private final boolean useMeshAnchor;
+		private final MeshGeometry geometry = new MeshGeometry();
+
+		GeometryCacheEntry(RenderItem item)
+		{
+			this.mesh = item.mesh;
+			this.vertices = item.vertices;
+			this.triangles = item.triangles;
+			this.submeshIndex = item.mesh != null ? item.submeshIndex : -1;
+			this.useMeshAnchor = item.mesh != null;
+		}
+
+		private boolean matches(RenderItem item)
+		{
+			if (useMeshAnchor)
+			{
+				return item.mesh == mesh && item.submeshIndex == submeshIndex;
+			}
+			return item.mesh == null && item.vertices == vertices && item.triangles == triangles;
 		}
 	}
 
@@ -469,7 +587,7 @@ public final class MiniJvmGraphics3DFactory implements Graphics3D.BackendFactory
 	{
 		private static final int TEXTURE_UNIT_COUNT = 2;
 		private static final int FLOAT_SIZE = 4;
-		private static final int COMPONENTS_PER_VERTEX = 11;
+		private static final int COMPONENTS_PER_VERTEX = 14;
 		private static final int STRIDE_BYTES = COMPONENTS_PER_VERTEX * FLOAT_SIZE;
 		static final int MAX_GPU_INFLUENCES = 4;
 		static final int MAX_GPU_BONES = 24;
@@ -496,6 +614,7 @@ public final class MiniJvmGraphics3DFactory implements Graphics3D.BackendFactory
 		private final float[] modelMatrix = new float[16];
 		private final float[] modelViewMatrix = new float[16];
 		private final float[] modelViewProjection = new float[16];
+		private final Transform textureTransformScratch = new Transform();
 		private final float[] textureVector = new float[4];
 		private final float[] skinBoneRows = new float[MAX_GPU_BONES * 12];
 		private final int[] skinLightModes = new int[MAX_GPU_LIGHTS];
@@ -505,10 +624,12 @@ public final class MiniJvmGraphics3DFactory implements Graphics3D.BackendFactory
 		private final float[] skinLightAttenuations = new float[MAX_GPU_LIGHTS * 4];
 		private final float[] skinLightSpots = new float[MAX_GPU_LIGHTS * 4];
 		private final java.util.Hashtable textureCache = new java.util.Hashtable();
+		private final Vector geometryCache = new Vector();
 		private GLFrameBuffer frameBuffer;
 		private int program;
 		private int skinProgram;
 		private int mvpLocation = -1;
+		private int modelLocation = -1;
 		private int modelViewLocation = -1;
 		private int alphaThresholdLocation = -1;
 		private int depthRangeScaleLocation = -1;
@@ -522,6 +643,24 @@ public final class MiniJvmGraphics3DFactory implements Graphics3D.BackendFactory
 		private final int[] textureModeLocations = new int[TEXTURE_UNIT_COUNT];
 		private final int[] textureSamplerLocations = new int[TEXTURE_UNIT_COUNT];
 		private final int[] textureBlendColorLocations = new int[TEXTURE_UNIT_COUNT];
+		private final int[] textureMatrixLocations = new int[TEXTURE_UNIT_COUNT];
+		private int hasVertexColorLocation = -1;
+		private int baseColorLocation = -1;
+		private int lightingEnabledLocation = -1;
+		private int vertexColorTrackingLocation = -1;
+		private int materialAmbientLocation = -1;
+		private int materialDiffuseLocation = -1;
+		private int materialEmissiveLocation = -1;
+		private int materialSpecularLocation = -1;
+		private int materialShininessLocation = -1;
+		private int cameraWorldPositionLocation = -1;
+		private int lightCountLocation = -1;
+		private int lightModesLocation = -1;
+		private int lightColorsLocation = -1;
+		private int lightPositionsLocation = -1;
+		private int lightDirectionsLocation = -1;
+		private int lightAttenuationsLocation = -1;
+		private int lightSpotsLocation = -1;
 		private int skinMvpLocation = -1;
 		private int skinModelLocation = -1;
 		private int skinModelViewLocation = -1;
@@ -581,7 +720,6 @@ public final class MiniJvmGraphics3DFactory implements Graphics3D.BackendFactory
 			{
 				throw new IllegalStateException();
 			}
-
 			ensureInitialized(owner.getViewportWidth(), owner.getViewportHeight());
 			frameBuffer.begin();
 			try
@@ -622,6 +760,7 @@ public final class MiniJvmGraphics3DFactory implements Graphics3D.BackendFactory
 				String skinVertexShader = adaptShaderVersion(readShaderResource(SKIN_VERTEX_SHADER_RESOURCE));
 				program = loadProgram(meshVertexShader, fragmentShader);
 				mvpLocation = glGetUniformLocation(program, toCstyleBytes("uMvp"));
+				modelLocation = glGetUniformLocation(program, toCstyleBytes("uModel"));
 				modelViewLocation = glGetUniformLocation(program, toCstyleBytes("uModelView"));
 				alphaThresholdLocation = glGetUniformLocation(program, toCstyleBytes("uAlphaThreshold"));
 				depthRangeScaleLocation = glGetUniformLocation(program, toCstyleBytes("uDepthRangeScale"));
@@ -637,7 +776,25 @@ public final class MiniJvmGraphics3DFactory implements Graphics3D.BackendFactory
 					textureModeLocations[i] = glGetUniformLocation(program, toCstyleBytes("uTextureMode" + i));
 					textureSamplerLocations[i] = glGetUniformLocation(program, toCstyleBytes("uTexture" + i));
 					textureBlendColorLocations[i] = glGetUniformLocation(program, toCstyleBytes("uTextureBlendColor" + i));
+					textureMatrixLocations[i] = glGetUniformLocation(program, toCstyleBytes("uTextureMatrix" + i));
 				}
+				hasVertexColorLocation = glGetUniformLocation(program, toCstyleBytes("uHasVertexColor"));
+				baseColorLocation = glGetUniformLocation(program, toCstyleBytes("uBaseColor"));
+				lightingEnabledLocation = glGetUniformLocation(program, toCstyleBytes("uLightingEnabled"));
+				vertexColorTrackingLocation = glGetUniformLocation(program, toCstyleBytes("uVertexColorTracking"));
+				materialAmbientLocation = glGetUniformLocation(program, toCstyleBytes("uMaterialAmbient"));
+				materialDiffuseLocation = glGetUniformLocation(program, toCstyleBytes("uMaterialDiffuse"));
+				materialEmissiveLocation = glGetUniformLocation(program, toCstyleBytes("uMaterialEmissive"));
+				materialSpecularLocation = glGetUniformLocation(program, toCstyleBytes("uMaterialSpecular"));
+				materialShininessLocation = glGetUniformLocation(program, toCstyleBytes("uMaterialShininess"));
+				cameraWorldPositionLocation = glGetUniformLocation(program, toCstyleBytes("uCameraWorldPos"));
+				lightCountLocation = glGetUniformLocation(program, toCstyleBytes("uLightCount"));
+				lightModesLocation = glGetUniformLocation(program, toCstyleBytes("uLightMode[0]"));
+				lightColorsLocation = glGetUniformLocation(program, toCstyleBytes("uLightColor[0]"));
+				lightPositionsLocation = glGetUniformLocation(program, toCstyleBytes("uLightPosition[0]"));
+				lightDirectionsLocation = glGetUniformLocation(program, toCstyleBytes("uLightDirection[0]"));
+				lightAttenuationsLocation = glGetUniformLocation(program, toCstyleBytes("uLightAttenuation[0]"));
+				lightSpotsLocation = glGetUniformLocation(program, toCstyleBytes("uLightSpot[0]"));
 				skinProgram = loadProgram(skinVertexShader, fragmentShader);
 				skinMvpLocation = glGetUniformLocation(skinProgram, toCstyleBytes("uMvp"));
 				skinModelLocation = glGetUniformLocation(skinProgram, toCstyleBytes("uModel"));
@@ -732,8 +889,8 @@ public final class MiniJvmGraphics3DFactory implements Graphics3D.BackendFactory
 				renderSkinnedItem(owner, item);
 				return;
 			}
-			TriangleData triangleData = buildTriangleData(owner, item);
-			if (triangleData.vertexCount == 0)
+			MeshGeometry geometry = getOrCreateMeshGeometry(item);
+			if (geometry.vertexCount == 0)
 			{
 				return;
 			}
@@ -743,6 +900,11 @@ public final class MiniJvmGraphics3DFactory implements Graphics3D.BackendFactory
 			if (item.transform != null)
 			{
 				combined.postMultiply(item.transform);
+				System.arraycopy(item.transform.getMatrix(), 0, modelMatrix, 0, 16);
+			}
+			else
+			{
+				System.arraycopy(identityMatrix, 0, modelMatrix, 0, 16);
 			}
 			System.arraycopy(combined.getMatrix(), 0, modelViewProjection, 0, 16);
 			Transform modelView = new Transform();
@@ -757,24 +919,29 @@ public final class MiniJvmGraphics3DFactory implements Graphics3D.BackendFactory
 
 			glUseProgram(program);
 			glUniformMatrix4fv(mvpLocation, 1, GL_TRUE, modelViewProjection, 0);
+			glUniformMatrix4fv(modelLocation, 1, GL_TRUE, modelMatrix, 0);
 			glUniformMatrix4fv(modelViewLocation, 1, GL_TRUE, modelViewMatrix, 0);
 			glUniform1f(alphaThresholdLocation, resolveAlphaThreshold(item.appearance));
 			glUniform1f(depthRangeScaleLocation, owner.getDepthRangeFar() - owner.getDepthRangeNear());
 			glUniform1f(depthRangeBiasLocation, owner.getDepthRangeFar() + owner.getDepthRangeNear() - 1f);
 			applyFog(item.appearance);
-			applyTextures(item.appearance, triangleData.texturedUnits);
+			applyTextures(item.appearance, geometry.texCoordUnits);
+			applyMaterial(owner, item, geometry);
+			applyLights(owner);
 			glBindVertexArray(vao[0]);
-			glBindBuffer(GL_ARRAY_BUFFER, vbo[0]);
-			glBufferData(GL_ARRAY_BUFFER, triangleData.vertices.length * FLOAT_SIZE, triangleData.vertices, 0, GL_DYNAMIC_DRAW);
+			glBindBuffer(GL_ARRAY_BUFFER, geometry.vbo[0]);
 			glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, STRIDE_BYTES, null, 0);
 			glEnableVertexAttribArray(0);
-			glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, STRIDE_BYTES, null, 3 * FLOAT_SIZE);
+			glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, STRIDE_BYTES, null, 3 * FLOAT_SIZE);
 			glEnableVertexAttribArray(1);
-			glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, STRIDE_BYTES, null, 7 * FLOAT_SIZE);
+			glVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE, STRIDE_BYTES, null, 6 * FLOAT_SIZE);
 			glEnableVertexAttribArray(2);
-			glVertexAttribPointer(3, 2, GL_FLOAT, GL_FALSE, STRIDE_BYTES, null, 9 * FLOAT_SIZE);
+			glVertexAttribPointer(3, 2, GL_FLOAT, GL_FALSE, STRIDE_BYTES, null, 10 * FLOAT_SIZE);
 			glEnableVertexAttribArray(3);
-			glDrawArrays(GL_TRIANGLES, 0, triangleData.vertexCount);
+			glVertexAttribPointer(4, 2, GL_FLOAT, GL_FALSE, STRIDE_BYTES, null, 12 * FLOAT_SIZE);
+			glEnableVertexAttribArray(4);
+			glDrawArrays(GL_TRIANGLES, 0, geometry.vertexCount);
+			glDisableVertexAttribArray(4);
 			glDisableVertexAttribArray(3);
 			glDisableVertexAttribArray(2);
 			glDisableVertexAttribArray(1);
@@ -1068,6 +1235,7 @@ public final class MiniJvmGraphics3DFactory implements Graphics3D.BackendFactory
 					glUniform1i(useTextureLocations[unit], 0);
 					glUniform1i(textureModeLocations[unit], TEXTURE_MODE_MODULATE);
 					glUniform4f(textureBlendColorLocations[unit], 0f, 0f, 0f, 1f);
+					glUniformMatrix4fv(textureMatrixLocations[unit], 1, GL_TRUE, identityMatrix, 0);
 					glActiveTexture(textureConstant(unit));
 					glBindTexture(GL_TEXTURE_2D, 0);
 					continue;
@@ -1087,6 +1255,8 @@ public final class MiniJvmGraphics3DFactory implements Graphics3D.BackendFactory
 						((blendColor >>> 8) & 0xFF) / 255f,
 						(blendColor & 0xFF) / 255f,
 						1f);
+				texture2D.getCompositeTransform(textureTransformScratch);
+				glUniformMatrix4fv(textureMatrixLocations[unit], 1, GL_TRUE, textureTransformScratch.getMatrix(), 0);
 
 				glActiveTexture(textureConstant(unit));
 				glBindTexture(GL_TEXTURE_2D, texId);
@@ -1116,6 +1286,333 @@ public final class MiniJvmGraphics3DFactory implements Graphics3D.BackendFactory
 			glUniform1f(fogNearLocation, fog.getNearDistance());
 			glUniform1f(fogFarLocation, fog.getFarDistance());
 			glUniform1f(fogDensityLocation, fog.getDensity());
+		}
+
+		private void applyMaterial(Graphics3D owner, RenderItem item, MeshGeometry geometry)
+		{
+			Material material = item.appearance != null ? item.appearance.getMaterial() : null;
+			int baseColor = resolveBaseColor(item.vertices, item.appearance);
+			boolean lightingEnabled = geometry.hasNormals && material != null && owner.getLightCount() > 0;
+			glUniform1i(hasVertexColorLocation, geometry.hasVertexColor ? 1 : 0);
+			setColorUniform(baseColorLocation, baseColor);
+			if (!lightingEnabled)
+			{
+				glUniform1i(lightingEnabledLocation, 0);
+				glUniform1i(vertexColorTrackingLocation, 0);
+				setColorUniform(materialAmbientLocation, 0x00000000);
+				setColorUniform(materialDiffuseLocation, baseColor);
+				setColorUniform(materialEmissiveLocation, 0x00000000);
+				setColorUniform(materialSpecularLocation, 0x00000000);
+				glUniform1f(materialShininessLocation, 0f);
+				return;
+			}
+			glUniform1i(lightingEnabledLocation, 1);
+			glUniform1i(vertexColorTrackingLocation, material.isVertexColorTrackingEnabled() ? 1 : 0);
+			setColorUniform(materialAmbientLocation, material.getColor(Material.AMBIENT));
+			setColorUniform(materialDiffuseLocation, material.getColor(Material.DIFFUSE));
+			setColorUniform(materialEmissiveLocation, material.getColor(Material.EMISSIVE));
+			setColorUniform(materialSpecularLocation, material.getColor(Material.SPECULAR));
+			glUniform1f(materialShininessLocation, material.getShininess());
+		}
+
+		private void applyLights(Graphics3D owner)
+		{
+			Transform cameraTransform = new Transform();
+			owner.getCamera(cameraTransform);
+			float[] cameraWorld = cameraTransform.getMatrix();
+			glUniform4f(cameraWorldPositionLocation, cameraWorld[3], cameraWorld[7], cameraWorld[11], 1f);
+
+			for (int i = 0; i < skinLightModes.length; i++)
+			{
+				skinLightModes[i] = 0;
+				int floatBase = i * 4;
+				skinLightColors[floatBase] = 0f;
+				skinLightColors[floatBase + 1] = 0f;
+				skinLightColors[floatBase + 2] = 0f;
+				skinLightColors[floatBase + 3] = 0f;
+				skinLightPositions[floatBase] = 0f;
+				skinLightPositions[floatBase + 1] = 0f;
+				skinLightPositions[floatBase + 2] = 0f;
+				skinLightPositions[floatBase + 3] = 1f;
+				skinLightDirections[floatBase] = 0f;
+				skinLightDirections[floatBase + 1] = 0f;
+				skinLightDirections[floatBase + 2] = -1f;
+				skinLightDirections[floatBase + 3] = 0f;
+				skinLightAttenuations[floatBase] = 1f;
+				skinLightAttenuations[floatBase + 1] = 0f;
+				skinLightAttenuations[floatBase + 2] = 0f;
+				skinLightAttenuations[floatBase + 3] = 0f;
+				skinLightSpots[floatBase] = -1f;
+				skinLightSpots[floatBase + 1] = 0f;
+				skinLightSpots[floatBase + 2] = 0f;
+				skinLightSpots[floatBase + 3] = 0f;
+			}
+
+			Transform lightTransform = new Transform();
+			float[] lightMatrix = new float[16];
+			int lightCount = Math.min(owner.getLightCount(), MAX_GPU_LIGHTS);
+			for (int i = 0; i < lightCount; i++)
+			{
+				Light light = owner.getLight(i, lightTransform);
+				lightTransform.get(lightMatrix);
+				int base = i * 4;
+				float intensity = light.getIntensity();
+				skinLightModes[i] = light.getMode();
+				skinLightColors[base] = (((light.getColor() >>> 16) & 0xFF) / 255f) * intensity;
+				skinLightColors[base + 1] = (((light.getColor() >>> 8) & 0xFF) / 255f) * intensity;
+				skinLightColors[base + 2] = ((light.getColor() & 0xFF) / 255f) * intensity;
+				skinLightColors[base + 3] = 1f;
+				skinLightPositions[base] = lightMatrix[3];
+				skinLightPositions[base + 1] = lightMatrix[7];
+				skinLightPositions[base + 2] = lightMatrix[11];
+				skinLightPositions[base + 3] = 1f;
+				skinLightDirections[base] = -lightMatrix[2];
+				skinLightDirections[base + 1] = -lightMatrix[6];
+				skinLightDirections[base + 2] = -lightMatrix[10];
+				skinLightDirections[base + 3] = 0f;
+				skinLightAttenuations[base] = light.getConstantAttenuation();
+				skinLightAttenuations[base + 1] = light.getLinearAttenuation();
+				skinLightAttenuations[base + 2] = light.getQuadraticAttenuation();
+				skinLightAttenuations[base + 3] = 0f;
+				float spotAngle = light.getSpotAngle();
+				skinLightSpots[base] = (spotAngle >= 0f && spotAngle < 180f)
+						? (float) Math.cos(Math.toRadians(spotAngle * 0.5f))
+						: -1f;
+				skinLightSpots[base + 1] = light.getSpotExponent();
+				skinLightSpots[base + 2] = 0f;
+				skinLightSpots[base + 3] = 0f;
+			}
+			glUniform1i(lightCountLocation, lightCount);
+			glUniform1iv(lightModesLocation, MAX_GPU_LIGHTS, skinLightModes, 0);
+			glUniform4fv(lightColorsLocation, MAX_GPU_LIGHTS, skinLightColors, 0);
+			glUniform4fv(lightPositionsLocation, MAX_GPU_LIGHTS, skinLightPositions, 0);
+			glUniform4fv(lightDirectionsLocation, MAX_GPU_LIGHTS, skinLightDirections, 0);
+			glUniform4fv(lightAttenuationsLocation, MAX_GPU_LIGHTS, skinLightAttenuations, 0);
+			glUniform4fv(lightSpotsLocation, MAX_GPU_LIGHTS, skinLightSpots, 0);
+		}
+
+		private MeshGeometry getOrCreateMeshGeometry(RenderItem item)
+		{
+			GeometryCacheEntry entry = findGeometryCacheEntry(item);
+			MeshGeometry geometry = entry != null ? entry.geometry : null;
+			boolean newKey = false;
+			if (geometry == null)
+			{
+				newKey = true;
+				entry = new GeometryCacheEntry(item);
+				geometry = entry.geometry;
+				geometryCache.addElement(entry);
+			}
+			String staleReason = newKey ? "new-key" : getGeometryStaleReason(geometry, item);
+			if (staleReason != null)
+			{
+				MeshGeometryData data = buildMeshGeometryData(item.vertices, item.triangles);
+				if (geometry.vbo[0] == 0)
+				{
+					glGenBuffers(1, geometry.vbo, 0);
+				}
+				glBindBuffer(GL_ARRAY_BUFFER, geometry.vbo[0]);
+				glBufferData(GL_ARRAY_BUFFER, data.vertices.length * FLOAT_SIZE, data.vertices, 0, GL_STATIC_DRAW);
+				geometry.vertexCount = data.vertexCount;
+				geometry.hasVertexColor = data.hasVertexColor;
+				geometry.hasNormals = data.hasNormals;
+				geometry.texCoordUnits = data.texCoordUnits;
+				geometry.vertexBufferRevision = item.vertices.getRevision();
+				geometry.positions = item.vertices.getPositions(null);
+				geometry.positionsRevision = getArrayRevision(geometry.positions);
+				geometry.normals = item.vertices.getNormals();
+				geometry.normalsRevision = getArrayRevision(geometry.normals);
+				geometry.colors = item.vertices.getColors();
+				geometry.colorsRevision = getArrayRevision(geometry.colors);
+				for (int unit = 0; unit < TEXTURE_UNIT_COUNT; unit++)
+				{
+					geometry.texCoords[unit] = item.vertices.getTexCoords(unit, null);
+					geometry.texCoordRevisions[unit] = getArrayRevision(geometry.texCoords[unit]);
+				}
+				geometry.morphStateHash = item.mesh instanceof MorphingMesh ? computeMorphStateHash((MorphingMesh) item.mesh) : Integer.MIN_VALUE;
+			}
+			return geometry;
+		}
+
+		private GeometryCacheEntry findGeometryCacheEntry(RenderItem item)
+		{
+			for (int i = 0; i < geometryCache.size(); i++)
+			{
+				GeometryCacheEntry entry = (GeometryCacheEntry) geometryCache.elementAt(i);
+				if (entry.matches(item))
+				{
+					return entry;
+				}
+			}
+			return null;
+		}
+
+		private String getGeometryStaleReason(MeshGeometry geometry, RenderItem item)
+		{
+			if (item.mesh instanceof MorphingMesh)
+			{
+				return geometry.morphStateHash == computeMorphStateHash((MorphingMesh) item.mesh) ? null : "morph-state";
+			}
+			VertexBuffer vertices = item.vertices;
+			if (geometry.vertexBufferRevision != vertices.getRevision())
+			{
+				return "vertex-buffer-revision";
+			}
+			VertexArray positions = vertices.getPositions(null);
+			if (geometry.positions != positions || geometry.positionsRevision != getArrayRevision(positions))
+			{
+				return "positions";
+			}
+			VertexArray normals = vertices.getNormals();
+			if (geometry.normals != normals || geometry.normalsRevision != getArrayRevision(normals))
+			{
+				return "normals";
+			}
+			VertexArray colors = vertices.getColors();
+			if (geometry.colors != colors || geometry.colorsRevision != getArrayRevision(colors))
+			{
+				return "colors";
+			}
+			for (int unit = 0; unit < TEXTURE_UNIT_COUNT; unit++)
+			{
+				VertexArray texCoords = vertices.getTexCoords(unit, null);
+				if (geometry.texCoords[unit] != texCoords || geometry.texCoordRevisions[unit] != getArrayRevision(texCoords))
+				{
+					return "texCoords" + unit;
+				}
+			}
+			return null;
+		}
+
+		private int getArrayRevision(VertexArray array)
+		{
+			return array != null ? array.getRevision() : -1;
+		}
+
+		private int computeMorphStateHash(MorphingMesh mesh)
+		{
+			int hash = computeVertexBufferStateHash(mesh.getVertexBuffer());
+			float[] weights = new float[mesh.getMorphTargetCount()];
+			mesh.getWeights(weights);
+			for (int i = 0; i < weights.length; i++)
+			{
+				hash = hash * 31 + Float.floatToIntBits(weights[i]);
+				hash = hash * 31 + computeVertexBufferStateHash(mesh.getMorphTarget(i));
+			}
+			return hash;
+		}
+
+		private int computeVertexBufferStateHash(VertexBuffer buffer)
+		{
+			int hash = System.identityHashCode(buffer);
+			hash = hash * 31 + buffer.getRevision();
+			hash = hash * 31 + buffer.getDefaultColor();
+			hash = hash * 31 + computeVertexArrayStateHash(buffer.getPositions(null));
+			hash = hash * 31 + computeVertexArrayStateHash(buffer.getNormals());
+			hash = hash * 31 + computeVertexArrayStateHash(buffer.getColors());
+			for (int unit = 0; unit < TEXTURE_UNIT_COUNT; unit++)
+			{
+				hash = hash * 31 + computeVertexArrayStateHash(buffer.getTexCoords(unit, null));
+			}
+			return hash;
+		}
+
+		private int computeVertexArrayStateHash(VertexArray array)
+		{
+			if (array == null)
+			{
+				return 0;
+			}
+			return System.identityHashCode(array) * 31 + array.getRevision();
+		}
+
+		private MeshGeometryData buildMeshGeometryData(VertexBuffer vertices, TriangleStripArray triangles)
+		{
+			VertexArray positionArray = vertices.getPositions(null);
+			if (positionArray == null)
+			{
+				throw new IllegalStateException();
+			}
+			VertexArray normalArray = vertices.getNormals();
+			VertexArray colorArray = vertices.getColors();
+			VertexArray[] texCoordArrays = new VertexArray[TEXTURE_UNIT_COUNT];
+			float[][] texCoordScaleBias = new float[TEXTURE_UNIT_COUNT][];
+			boolean[] texCoordUnits = new boolean[TEXTURE_UNIT_COUNT];
+			for (int unit = 0; unit < TEXTURE_UNIT_COUNT; unit++)
+			{
+				texCoordArrays[unit] = vertices.getTexCoords(unit, null);
+				texCoordScaleBias[unit] = texCoordArrays[unit] != null ? vertices.getTexCoordScaleBias(unit) : null;
+				texCoordUnits[unit] = texCoordArrays[unit] != null;
+			}
+			float[] positionScaleBias = vertices.getPositionScaleBias();
+			int triangleCount = countTriangles(triangles.getStripLengths());
+			float[] data = new float[triangleCount * 3 * COMPONENTS_PER_VERTEX];
+			int cursor = 0;
+			int[] rawIndices = triangles.getRawIndices();
+			int[] stripLengths = triangles.getStripLengths();
+			int base = 0;
+			for (int strip = 0; strip < stripLengths.length; strip++)
+			{
+				int stripLength = stripLengths[strip];
+				for (int i = 0; i < stripLength - 2; i++)
+				{
+					int i0 = rawIndices[base + i];
+					int i1 = rawIndices[base + i + 1];
+					int i2 = rawIndices[base + i + 2];
+					if ((i & 1) != 0)
+					{
+						int swap = i1;
+						i1 = i2;
+						i2 = swap;
+					}
+					cursor = appendMeshVertex(data, cursor, vertices, positionArray, positionScaleBias, normalArray, colorArray,
+							texCoordArrays, texCoordScaleBias, i0);
+					cursor = appendMeshVertex(data, cursor, vertices, positionArray, positionScaleBias, normalArray, colorArray,
+							texCoordArrays, texCoordScaleBias, i1);
+					cursor = appendMeshVertex(data, cursor, vertices, positionArray, positionScaleBias, normalArray, colorArray,
+							texCoordArrays, texCoordScaleBias, i2);
+				}
+				base += stripLength;
+			}
+			return new MeshGeometryData(data, triangleCount * 3, texCoordUnits, colorArray != null, normalArray != null);
+		}
+
+		private int appendMeshVertex(float[] data, int cursor, VertexBuffer vertices, VertexArray positions, float[] positionScaleBias,
+				VertexArray normals, VertexArray colors, VertexArray[] texCoords, float[][] texCoordScaleBias, int index)
+		{
+			data[cursor++] = positions.getComponentAsFloat(index, 0) * positionScaleBias[0] + positionScaleBias[1];
+			data[cursor++] = positions.getComponentAsFloat(index, 1) * positionScaleBias[0] + positionScaleBias[2];
+			data[cursor++] = positions.getComponentAsFloat(index, 2) * positionScaleBias[0] + positionScaleBias[3];
+			if (normals != null)
+			{
+				data[cursor++] = getNormalizedComponent(normals, index, 0);
+				data[cursor++] = getNormalizedComponent(normals, index, 1);
+				data[cursor++] = getNormalizedComponent(normals, index, 2);
+			}
+			else
+			{
+				data[cursor++] = 0f;
+				data[cursor++] = 0f;
+				data[cursor++] = 1f;
+			}
+			int trackedColor = colors != null ? getVertexColor(colors, index) : vertices.getDefaultColor();
+			data[cursor++] = ((trackedColor >>> 16) & 0xFF) / 255f;
+			data[cursor++] = ((trackedColor >>> 8) & 0xFF) / 255f;
+			data[cursor++] = (trackedColor & 0xFF) / 255f;
+			data[cursor++] = ((trackedColor >>> 24) & 0xFF) / 255f;
+			for (int unit = 0; unit < TEXTURE_UNIT_COUNT; unit++)
+			{
+				float u = 0f;
+				float v = 0f;
+				if (texCoords[unit] != null)
+				{
+					u = texCoords[unit].getComponentAsFloat(index, 0) * texCoordScaleBias[unit][0] + texCoordScaleBias[unit][1];
+					v = texCoords[unit].getComponentAsFloat(index, 1) * texCoordScaleBias[unit][0] + texCoordScaleBias[unit][2];
+				}
+				data[cursor++] = u;
+				data[cursor++] = v;
+			}
+			return cursor;
 		}
 
 		private void applySkinTextures(Appearance appearance, boolean[] texturedUnits)
@@ -1410,6 +1907,7 @@ public final class MiniJvmGraphics3DFactory implements Graphics3D.BackendFactory
 
 			glUseProgram(program);
 			glUniformMatrix4fv(mvpLocation, 1, GL_TRUE, identityMatrix, 0);
+			glUniformMatrix4fv(modelLocation, 1, GL_TRUE, identityMatrix, 0);
 			glUniformMatrix4fv(modelViewLocation, 1, GL_TRUE, identityMatrix, 0);
 			glUniform1f(alphaThresholdLocation, 0f);
 			glUniform1f(depthRangeScaleLocation, 1f);
@@ -1423,10 +1921,23 @@ public final class MiniJvmGraphics3DFactory implements Graphics3D.BackendFactory
 			glUniform1i(textureModeLocations[0], TEXTURE_MODE_REPLACE);
 			glUniform1i(textureSamplerLocations[0], 0);
 			glUniform4f(textureBlendColorLocations[0], 0f, 0f, 0f, 1f);
+			glUniformMatrix4fv(textureMatrixLocations[0], 1, GL_TRUE, identityMatrix, 0);
 			glUniform1i(useTextureLocations[1], 0);
 			glUniform1i(textureModeLocations[1], TEXTURE_MODE_MODULATE);
 			glUniform1i(textureSamplerLocations[1], 1);
 			glUniform4f(textureBlendColorLocations[1], 0f, 0f, 0f, 1f);
+			glUniformMatrix4fv(textureMatrixLocations[1], 1, GL_TRUE, identityMatrix, 0);
+			glUniform1i(hasVertexColorLocation, 1);
+			setColorUniform(baseColorLocation, 0xFFFFFFFF);
+			glUniform1i(lightingEnabledLocation, 0);
+			glUniform1i(vertexColorTrackingLocation, 0);
+			setColorUniform(materialAmbientLocation, 0x00000000);
+			setColorUniform(materialDiffuseLocation, 0xFFFFFFFF);
+			setColorUniform(materialEmissiveLocation, 0x00000000);
+			setColorUniform(materialSpecularLocation, 0x00000000);
+			glUniform1f(materialShininessLocation, 0f);
+			glUniform4f(cameraWorldPositionLocation, 0f, 0f, 1f, 1f);
+			glUniform1i(lightCountLocation, 0);
 			glActiveTexture(GL_TEXTURE0);
 			glBindTexture(GL_TEXTURE_2D, backgroundTexture[0]);
 
@@ -1435,11 +1946,17 @@ public final class MiniJvmGraphics3DFactory implements Graphics3D.BackendFactory
 			glBufferData(GL_ARRAY_BUFFER, backgroundVertices.length * FLOAT_SIZE, backgroundVertices, 0, GL_DYNAMIC_DRAW);
 			glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, STRIDE_BYTES, null, 0);
 			glEnableVertexAttribArray(0);
-			glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, STRIDE_BYTES, null, 3 * FLOAT_SIZE);
+			glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, STRIDE_BYTES, null, 3 * FLOAT_SIZE);
 			glEnableVertexAttribArray(1);
-			glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, STRIDE_BYTES, null, 7 * FLOAT_SIZE);
+			glVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE, STRIDE_BYTES, null, 6 * FLOAT_SIZE);
 			glEnableVertexAttribArray(2);
+			glVertexAttribPointer(3, 2, GL_FLOAT, GL_FALSE, STRIDE_BYTES, null, 10 * FLOAT_SIZE);
+			glEnableVertexAttribArray(3);
+			glVertexAttribPointer(4, 2, GL_FLOAT, GL_FALSE, STRIDE_BYTES, null, 12 * FLOAT_SIZE);
+			glEnableVertexAttribArray(4);
 			glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+			glDisableVertexAttribArray(4);
+			glDisableVertexAttribArray(3);
 			glDisableVertexAttribArray(2);
 			glDisableVertexAttribArray(1);
 			glDisableVertexAttribArray(0);
@@ -1452,14 +1969,17 @@ public final class MiniJvmGraphics3DFactory implements Graphics3D.BackendFactory
 			backgroundVertices[base] = x;
 			backgroundVertices[base + 1] = y;
 			backgroundVertices[base + 2] = 0f;
-			backgroundVertices[base + 3] = 1f;
-			backgroundVertices[base + 4] = 1f;
+			backgroundVertices[base + 3] = 0f;
+			backgroundVertices[base + 4] = 0f;
 			backgroundVertices[base + 5] = 1f;
 			backgroundVertices[base + 6] = 1f;
-			backgroundVertices[base + 7] = u;
-			backgroundVertices[base + 8] = v;
-			backgroundVertices[base + 9] = 0f;
-			backgroundVertices[base + 10] = 0f;
+			backgroundVertices[base + 7] = 1f;
+			backgroundVertices[base + 8] = 1f;
+			backgroundVertices[base + 9] = 1f;
+			backgroundVertices[base + 10] = u;
+			backgroundVertices[base + 11] = v;
+			backgroundVertices[base + 12] = 0f;
+			backgroundVertices[base + 13] = 0f;
 		}
 
 		private boolean hasAnyTexture(Appearance appearance)
@@ -2222,6 +2742,7 @@ public final class MiniJvmGraphics3DFactory implements Graphics3D.BackendFactory
 		private final ImageMutable mutableImage;
 		private final byte[] data;
 		private final int width;
+		private final int height;
 		private final boolean opaque;
 
 		BufferedImageTargetSurface(BufferedImage image, boolean opaque)
@@ -2230,28 +2751,50 @@ public final class MiniJvmGraphics3DFactory implements Graphics3D.BackendFactory
 			this.mutableImage = image.getImage();
 			this.data = mutableImage.getData().array();
 			this.width = image.getWidth();
+			this.height = image.getHeight();
 			this.opaque = opaque;
+		}
+
+		private boolean isInBounds(int x, int y)
+		{
+			return x >= 0 && y >= 0 && x < width && y < height;
 		}
 
 		public void setPixel(int x, int y, int argb)
 		{
+			if (!isInBounds(x, y))
+			{
+				return;
+			}
 			image.setRGB(x, y, opaque ? (argb | 0xFF000000) : argb);
 		}
 
 		void writeRgbaRowsFlipped(byte[] rgba, int srcWidth, int srcHeight, int dstX, int dstY)
 		{
 			int rowBytes = srcWidth * READBACK_BYTES_PER_PIXEL;
+			int clippedDstX = Math.max(0, dstX);
+			int clippedSrcX = clippedDstX - dstX;
+			int clippedWidth = Math.min(srcWidth - clippedSrcX, width - clippedDstX);
+			if (clippedWidth <= 0)
+			{
+				return;
+			}
+			int clippedRowBytes = clippedWidth * READBACK_BYTES_PER_PIXEL;
 			synchronized (mutableImage)
 			{
 				for (int srcY = 0; srcY < srcHeight; srcY++)
 				{
 					int dstRow = dstY + (srcHeight - 1 - srcY);
-					int srcOffset = srcY * rowBytes;
-					int dstOffset = ((dstRow * width) + dstX) * READBACK_BYTES_PER_PIXEL;
-					System.arraycopy(rgba, srcOffset, data, dstOffset, rowBytes);
+					if (dstRow < 0 || dstRow >= height)
+					{
+						continue;
+					}
+					int srcOffset = srcY * rowBytes + clippedSrcX * READBACK_BYTES_PER_PIXEL;
+					int dstOffset = ((dstRow * width) + clippedDstX) * READBACK_BYTES_PER_PIXEL;
+					System.arraycopy(rgba, srcOffset, data, dstOffset, clippedRowBytes);
 					if (opaque)
 					{
-						for (int alphaOffset = dstOffset + 3, alphaEnd = dstOffset + rowBytes; alphaOffset < alphaEnd; alphaOffset += READBACK_BYTES_PER_PIXEL)
+						for (int alphaOffset = dstOffset + 3, alphaEnd = dstOffset + clippedRowBytes; alphaOffset < alphaEnd; alphaOffset += READBACK_BYTES_PER_PIXEL)
 						{
 							data[alphaOffset] = (byte) 0xFF;
 						}
@@ -2263,14 +2806,25 @@ public final class MiniJvmGraphics3DFactory implements Graphics3D.BackendFactory
 		void writeNativeRowsFlipped(byte[] nativePixels, int srcWidth, int srcHeight, int dstX, int dstY)
 		{
 			int rowBytes = srcWidth * READBACK_BYTES_PER_PIXEL;
+			int clippedDstX = Math.max(0, dstX);
+			int clippedSrcX = clippedDstX - dstX;
+			int clippedWidth = Math.min(srcWidth - clippedSrcX, width - clippedDstX);
+			if (clippedWidth <= 0)
+			{
+				return;
+			}
 			synchronized (mutableImage)
 			{
 				for (int srcY = 0; srcY < srcHeight; srcY++)
 				{
 					int dstRow = dstY + (srcHeight - 1 - srcY);
-					int srcOffset = srcY * rowBytes;
-					int dstOffset = ((dstRow * width) + dstX) * READBACK_BYTES_PER_PIXEL;
-					for (int x = 0; x < srcWidth; x++)
+					if (dstRow < 0 || dstRow >= height)
+					{
+						continue;
+					}
+					int srcOffset = srcY * rowBytes + clippedSrcX * READBACK_BYTES_PER_PIXEL;
+					int dstOffset = ((dstRow * width) + clippedDstX) * READBACK_BYTES_PER_PIXEL;
+					for (int x = 0; x < clippedWidth; x++)
 					{
 						data[dstOffset] = nativePixels[srcOffset + 2];
 						data[dstOffset + 1] = nativePixels[srcOffset + 1];
@@ -2289,6 +2843,7 @@ public final class MiniJvmGraphics3DFactory implements Graphics3D.BackendFactory
 		private final Image2D image;
 		private final byte[] data;
 		private final int width;
+		private final int height;
 		private final int pixelBytes;
 
 		Image2DTargetSurface(Image2D image)
@@ -2296,11 +2851,21 @@ public final class MiniJvmGraphics3DFactory implements Graphics3D.BackendFactory
 			this.image = image;
 			this.data = image.getImageData();
 			this.width = image.getWidth();
+			this.height = image.getHeight();
 			this.pixelBytes = image.getFormat() == Image2D.RGB ? 3 : READBACK_BYTES_PER_PIXEL;
+		}
+
+		private boolean isInBounds(int x, int y)
+		{
+			return x >= 0 && y >= 0 && x < width && y < height;
 		}
 
 		public void setPixel(int x, int y, int argb)
 		{
+			if (!isInBounds(x, y))
+			{
+				return;
+			}
 			int offset = (y * width + x) * (image.getFormat() == Image2D.RGB ? 3 : 4);
 			data[offset] = (byte) ((argb >>> 16) & 0xFF);
 			data[offset + 1] = (byte) ((argb >>> 8) & 0xFF);
@@ -2313,24 +2878,40 @@ public final class MiniJvmGraphics3DFactory implements Graphics3D.BackendFactory
 
 		void writeRgbaRowsFlipped(byte[] rgba, int srcWidth, int srcHeight, int dstX, int dstY)
 		{
+			int clippedDstX = Math.max(0, dstX);
+			int clippedSrcX = clippedDstX - dstX;
+			int clippedWidth = Math.min(srcWidth - clippedSrcX, width - clippedDstX);
+			if (clippedWidth <= 0)
+			{
+				return;
+			}
 			if (image.getFormat() == Image2D.RGBA)
 			{
 				int rowBytes = srcWidth * READBACK_BYTES_PER_PIXEL;
+				int clippedRowBytes = clippedWidth * READBACK_BYTES_PER_PIXEL;
 				for (int srcY = 0; srcY < srcHeight; srcY++)
 				{
 					int dstRow = dstY + (srcHeight - 1 - srcY);
-					int srcOffset = srcY * rowBytes;
-					int dstOffset = ((dstRow * width) + dstX) * pixelBytes;
-					System.arraycopy(rgba, srcOffset, data, dstOffset, rowBytes);
+					if (dstRow < 0 || dstRow >= height)
+					{
+						continue;
+					}
+					int srcOffset = srcY * rowBytes + clippedSrcX * READBACK_BYTES_PER_PIXEL;
+					int dstOffset = ((dstRow * width) + clippedDstX) * pixelBytes;
+					System.arraycopy(rgba, srcOffset, data, dstOffset, clippedRowBytes);
 				}
 				return;
 			}
 			for (int srcY = 0; srcY < srcHeight; srcY++)
 			{
 				int dstRow = dstY + (srcHeight - 1 - srcY);
-				int srcOffset = srcY * srcWidth * READBACK_BYTES_PER_PIXEL;
-				int dstOffset = ((dstRow * width) + dstX) * pixelBytes;
-				for (int x = 0; x < srcWidth; x++)
+				if (dstRow < 0 || dstRow >= height)
+				{
+					continue;
+				}
+				int srcOffset = srcY * srcWidth * READBACK_BYTES_PER_PIXEL + clippedSrcX * READBACK_BYTES_PER_PIXEL;
+				int dstOffset = ((dstRow * width) + clippedDstX) * pixelBytes;
+				for (int x = 0; x < clippedWidth; x++)
 				{
 					data[dstOffset] = rgba[srcOffset];
 					data[dstOffset + 1] = rgba[srcOffset + 1];
