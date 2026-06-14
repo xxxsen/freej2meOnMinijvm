@@ -1736,12 +1736,11 @@ public final class MiniJvmGraphics3DFactory implements Graphics3D.BackendFactory
         }
 
         private int configureTexture(int unit, Texture2D texture, Image2D image, int wrapS, int wrapT, int filter) {
-            GlUploadImage uploadImage = prepareImageForGl(image, "texture" + unit);
             glActiveTexture(textureConstant(unit));
             Integer cached = (Integer) textureCache.get(image);
             int texId;
-            boolean uploaded = false;
             if (cached == null || image.isMutable()) {
+                GlUploadImage uploadImage = prepareImageForGl(image);
                 int[] tex = new int[1];
                 if (cached != null) {
                     tex[0] = cached.intValue();
@@ -1759,7 +1758,6 @@ public final class MiniJvmGraphics3DFactory implements Graphics3D.BackendFactory
                         uploadImage.format == Image2D.RGB ? GL_RGB : GL_RGBA,
                         GL_UNSIGNED_BYTE, uploadImage.data, 0);
                 textureCache.put(image, Integer.valueOf(texId));
-                uploaded = true;
             } else {
                 texId = cached.intValue();
                 glBindTexture(GL_TEXTURE_2D, texId);
@@ -2853,14 +2851,14 @@ public final class MiniJvmGraphics3DFactory implements Graphics3D.BackendFactory
         return target instanceof javax.microedition.lcdui.Graphics;
     }
 
-    private static GlUploadImage prepareImageForGl(Image2D image, String usage) {
+    private static GlUploadImage prepareImageForGl(Image2D image) {
         if (image == null) {
             throw new NullPointerException("image");
         }
-        if (image.getFormat() == Image2D.RGBA) {
+        if (isDirectGlImageFormat(image.getFormat())) {
             return new GlUploadImage(image.getWidth(), image.getHeight(), image.getFormat(), image.getImageData());
         }
-        // Normalize RGB textures to RGBA before upload.
+        // Non-RGB(A) images still need CPU expansion before GL upload.
         int targetFormat = Image2D.RGBA;
         byte[] source = image.getImageData();
         byte[] converted = new byte[image.getWidth() * image.getHeight() * 4];
