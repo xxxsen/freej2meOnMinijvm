@@ -41,6 +41,10 @@ vec4 applyTexture(vec4 baseColor, vec4 sampleColor, int textureMode, vec4 blendC
     return baseColor * sampleColor;
 }
 
+vec4 sampleM3GTexture(sampler2D tex, vec2 uv) {
+    return texture(tex, uv);
+}
+
 float computeFogFactor(float distanceValue) {
     if (uFogMode == 81) {
         if (distanceValue <= 0.0) {
@@ -63,10 +67,10 @@ float computeFogFactor(float distanceValue) {
 void main() {
     vec4 color = vColor;
     if (uUseTexture0 != 0) {
-        color = applyTexture(color, texture(uTexture0, vTexCoord0), uTextureMode0, uTextureBlendColor0);
+        color = applyTexture(color, sampleM3GTexture(uTexture0, vTexCoord0), uTextureMode0, uTextureBlendColor0);
     }
     if (uUseTexture1 != 0) {
-        color = applyTexture(color, texture(uTexture1, vTexCoord1), uTextureMode1, uTextureBlendColor1);
+        color = applyTexture(color, sampleM3GTexture(uTexture1, vTexCoord1), uTextureMode1, uTextureBlendColor1);
     }
     if (color.a < uAlphaThreshold) {
         discard;

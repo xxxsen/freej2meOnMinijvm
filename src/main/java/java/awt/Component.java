@@ -3,7 +3,7 @@ package java.awt;
 import org.mini.gui.callback.GCallBack;
 import org.mini.gui.GContainer;
 import org.mini.gui.GObject;
-import sun.misc.GC;
+
 
 import java.awt.event.*;
 import java.awt.image.BufferedImage;
