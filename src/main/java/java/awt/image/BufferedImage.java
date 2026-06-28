@@ -185,17 +185,19 @@ public class BufferedImage extends java.awt.Image implements WritableRenderedIma
     }
 
     public int[] getRGB(int x, int y, int width, int height, int[] pixels, int offset, int scanlength) {
-        int tgtY = offset / scanlength;
-        int tgtX = offset % scanlength;
-        int tgtW = scanlength;
-        int tgtH = pixels.length / scanlength;
-        int endY = y + height;
-        int endX = x + width;
-        for (int j = y; j < endY && j < gimg.getHeight() && tgtY < tgtH; j++, tgtY++) {
-            int dx = tgtX;
-            int tgtRowStart = tgtY * scanlength;
-            for (int i = x; i < endX && i < gimg.getWidth() && dx < tgtW; i++, dx++) {
-                pixels[tgtRowStart + dx] = nativeToArgb(gimg.getPix(j, i));
+        // 对齐标准 AWT 语义：以 (x, y) 为源矩形原点，
+        // 按 `offset + (row - y) * scanlength + (col - x)` 写入 pixels。
+        // 之前的实现从 offset/scanlength 反推目标矩形，对非平凡 offset、
+        // 子区域或单行区域读取会返回陈旧/未写入像素（典型表现：
+        // 运行时构造的 Image2D 全黑，使 FUNC_REPLACE 贴图变黑）。
+        int imgW = (int) gimg.getWidth();
+        int imgH = (int) gimg.getHeight();
+        int endY = Math.min(y + height, imgH);
+        int endX = Math.min(x + width, imgW);
+        for (int row = y; row < endY; row++) {
+            int dstRow = offset + (row - y) * scanlength;
+            for (int col = x; col < endX; col++) {
+                pixels[dstRow + (col - x)] = nativeToArgb(gimg.getPix(row, col));
             }
         }
         return pixels;

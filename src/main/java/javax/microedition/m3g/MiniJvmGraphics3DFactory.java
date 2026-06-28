@@ -122,6 +122,17 @@ import static org.mini.gl.GL.glTexParameteri;
 import static org.mini.glwrap.GLUtil.toCstyleBytes;
 
 public final class MiniJvmGraphics3DFactory implements Graphics3D.BackendFactory {
+
+    // 诊断开关：-Dfreej2me.m3g.diag.leak=1
+    // 仅在 FBO 句柄异常失效（理论上已被根因修复，不会再发生）时打印回退信息。
+    private static final boolean DIAG_LEAK = Boolean.getBoolean("freej2me.m3g.diag.leak");
+
+    private static void diagLog(String msg) {
+        if (DIAG_LEAK) {
+            System.err.println("[M3G-DIAG] " + msg);
+        }
+    }
+
     public Graphics3D.Backend create(Graphics3D owner, Graphics3D.Backend softwareFallback) {
         return new MiniJvmGlBackend(owner, softwareFallback);
     }
@@ -707,7 +718,26 @@ public final class MiniJvmGraphics3DFactory implements Graphics3D.BackendFactory
                 throw new IllegalStateException();
             }
             ensureInitialized(owner.getViewportWidth(), owner.getViewportHeight());
+            // miniJVM 整个应用（EmuForm 的 nanovg 界面 + 本 3D 管线）共享同一个 GL 上下文，
+            // 都在 GL 线程上绘制。3D 管线会把大量全局 GL 状态（viewport / scissor / blend /
+            // depth / cull / colorMask / polygonOffset / program / vao / vbo / texture binding /
+            // active texture / pixelStore）改成自己需要的值。这里在进入 FBO 渲染前把相关
+            // 状态整体保存，finally 里整体恢复，避免污染共享上下文里的其它绘制。
+            GlStateSaver savedState = new GlStateSaver();
+            savedState.capture();
             frameBuffer.begin();
+            // 安全校验：确认我们的离屏 FBO 真的绑上了。正常情况下它一定非零；
+            // 若发生 FBO 句柄异常失效（历史上由 GLFrameBuffer.finalize 误删复用 id 引发），
+            // 绑定会落到默认窗口（0），此时 glViewport(0,0,3D视口) 会让整帧画到窗口左下角。
+            // 这种情况下整帧回退软件渲染，宁可降速也不污染屏幕。
+            int[] boundFbo = new int[1];
+            org.mini.gl.GL.glGetIntegerv(org.mini.gl.GL.GL_FRAMEBUFFER_BINDING, boundFbo, 0);
+            if (boundFbo[0] == 0) {
+                diagLog("FBO bind FAILED (bound=0), fallback to software");
+                frameBuffer.end();
+                savedState.restore();
+                throw new IllegalStateException("FBO not bound");
+            }
             try {
                 glViewport(0, 0, owner.getViewportWidth(), owner.getViewportHeight());
                 if (frame.implicitClearRequested && !frame.clearCalled) {
@@ -729,8 +759,16 @@ public final class MiniJvmGraphics3DFactory implements Graphics3D.BackendFactory
                 }
                 readBack(owner, target);
             } finally {
+                // 最小解绑
+                org.mini.gl.GL.glUseProgram(0);
+                org.mini.gl.GL.glBindVertexArray(0);
+                org.mini.gl.GL.glBindBuffer(org.mini.gl.GL.GL_ARRAY_BUFFER, 0);
+                org.mini.gl.GL.glActiveTexture(org.mini.gl.GL.GL_TEXTURE0);
+                org.mini.gl.GL.glBindTexture(org.mini.gl.GL.GL_TEXTURE_2D, 0);
+
                 frameBuffer.end();
-                GForm.flush();
+                // 恢复进入前保存的全局 GL 状态，避免污染共享上下文里的其它绘制管线。
+                savedState.restore();
             }
         }
 
@@ -827,11 +865,112 @@ public final class MiniJvmGraphics3DFactory implements Graphics3D.BackendFactory
             }
         }
 
+        /**
+         * 保存并恢复 3D 管线会修改的全部全局 GL 状态。
+         * miniJVM 整个应用（EmuForm 的 nanovg 界面 + 本 3D 管线）共享同一个 GL 上下文，
+         * 因此每帧 3D 渲染结束后必须把状态还原，否则会污染 nanovg 的后续绘制。
+         */
+        private final class GlStateSaver {
+            private boolean blend;
+            private boolean depthTest;
+            private boolean cullFace;
+            private boolean scissorTest;
+            private boolean polygonOffsetFill;
+            private int[] viewport = new int[4];
+            private int[] scissorBox = new int[4];
+            private int[] colorWriteMask = new int[4];
+            private int[] depthWriteMask = new int[1];
+            private int[] depthFunc = new int[1];
+            private int[] activeTexture = new int[1];
+            private int[] currentProgram = new int[1];
+            private int[] vertexArrayBinding = new int[1];
+            private int[] arrayBufferBinding = new int[1];
+            private int[] elementArrayBufferBinding = new int[1];
+            private int[] textureBinding0 = new int[1];
+            private int[] blendSrcRgb = new int[1];
+            private int[] blendDstRgb = new int[1];
+            private int[] blendSrcAlpha = new int[1];
+            private int[] blendDstAlpha = new int[1];
+            private int[] blendEquationRgb = new int[1];
+            private int[] blendEquationAlpha = new int[1];
+            private int[] packAlignment = new int[1];
+
+            void capture() {
+                blend = org.mini.gl.GL.glIsEnabled(GL_BLEND) != 0;
+                depthTest = org.mini.gl.GL.glIsEnabled(GL_DEPTH_TEST) != 0;
+                cullFace = org.mini.gl.GL.glIsEnabled(GL_CULL_FACE) != 0;
+                scissorTest = org.mini.gl.GL.glIsEnabled(org.mini.gl.GL.GL_SCISSOR_TEST) != 0;
+                polygonOffsetFill = org.mini.gl.GL.glIsEnabled(GL_POLYGON_OFFSET_FILL) != 0;
+                org.mini.gl.GL.glGetIntegerv(org.mini.gl.GL.GL_VIEWPORT, viewport, 0);
+                org.mini.gl.GL.glGetIntegerv(org.mini.gl.GL.GL_SCISSOR_BOX, scissorBox, 0);
+                org.mini.gl.GL.glGetIntegerv(org.mini.gl.GL.GL_COLOR_WRITEMASK, colorWriteMask, 0);
+                org.mini.gl.GL.glGetIntegerv(org.mini.gl.GL.GL_DEPTH_WRITEMASK, depthWriteMask, 0);
+                org.mini.gl.GL.glGetIntegerv(org.mini.gl.GL.GL_DEPTH_FUNC, depthFunc, 0);
+                org.mini.gl.GL.glGetIntegerv(org.mini.gl.GL.GL_ACTIVE_TEXTURE, activeTexture, 0);
+                org.mini.gl.GL.glGetIntegerv(org.mini.gl.GL.GL_CURRENT_PROGRAM, currentProgram, 0);
+                org.mini.gl.GL.glGetIntegerv(org.mini.gl.GL.GL_VERTEX_ARRAY_BINDING, vertexArrayBinding, 0);
+                org.mini.gl.GL.glGetIntegerv(org.mini.gl.GL.GL_ARRAY_BUFFER_BINDING, arrayBufferBinding, 0);
+                org.mini.gl.GL.glGetIntegerv(org.mini.gl.GL.GL_ELEMENT_ARRAY_BUFFER_BINDING, elementArrayBufferBinding, 0);
+                org.mini.gl.GL.glGetIntegerv(org.mini.gl.GL.GL_TEXTURE_BINDING_2D, textureBinding0, 0);
+                org.mini.gl.GL.glGetIntegerv(org.mini.gl.GL.GL_BLEND_SRC_RGB, blendSrcRgb, 0);
+                org.mini.gl.GL.glGetIntegerv(org.mini.gl.GL.GL_BLEND_DST_RGB, blendDstRgb, 0);
+                org.mini.gl.GL.glGetIntegerv(org.mini.gl.GL.GL_BLEND_SRC_ALPHA, blendSrcAlpha, 0);
+                org.mini.gl.GL.glGetIntegerv(org.mini.gl.GL.GL_BLEND_DST_ALPHA, blendDstAlpha, 0);
+                org.mini.gl.GL.glGetIntegerv(org.mini.gl.GL.GL_BLEND_EQUATION_RGB, blendEquationRgb, 0);
+                org.mini.gl.GL.glGetIntegerv(org.mini.gl.GL.GL_BLEND_EQUATION_ALPHA, blendEquationAlpha, 0);
+                org.mini.gl.GL.glGetIntegerv(org.mini.gl.GL.GL_PACK_ALIGNMENT, packAlignment, 0);
+            }
+
+            void restore() {
+                setEnabled(GL_BLEND, blend);
+                setEnabled(GL_DEPTH_TEST, depthTest);
+                setEnabled(GL_CULL_FACE, cullFace);
+                setEnabled(org.mini.gl.GL.GL_SCISSOR_TEST, scissorTest);
+                setEnabled(GL_POLYGON_OFFSET_FILL, polygonOffsetFill);
+                org.mini.gl.GL.glViewport(viewport[0], viewport[1], viewport[2], viewport[3]);
+                org.mini.gl.GL.glScissor(scissorBox[0], scissorBox[1], scissorBox[2], scissorBox[3]);
+                org.mini.gl.GL.glColorMask(
+                        colorWriteMask[0], colorWriteMask[1], colorWriteMask[2], colorWriteMask[3]);
+                org.mini.gl.GL.glDepthMask(depthWriteMask[0]);
+                org.mini.gl.GL.glDepthFunc(depthFunc[0]);
+                org.mini.gl.GL.glActiveTexture(activeTexture[0]);
+                org.mini.gl.GL.glUseProgram(currentProgram[0]);
+                org.mini.gl.GL.glBindVertexArray(vertexArrayBinding[0]);
+                org.mini.gl.GL.glBindBuffer(GL_ARRAY_BUFFER, arrayBufferBinding[0]);
+                org.mini.gl.GL.glBindBuffer(org.mini.gl.GL.GL_ELEMENT_ARRAY_BUFFER, elementArrayBufferBinding[0]);
+                // GL_TEXTURE0 上的纹理绑定（捕获时的 active texture 可能不是 TEXTURE0，
+                // 因此先切回 TEXTURE0 还原其绑定，再切回原 active texture）。
+                org.mini.gl.GL.glActiveTexture(org.mini.gl.GL.GL_TEXTURE0);
+                org.mini.gl.GL.glBindTexture(GL_TEXTURE_2D, textureBinding0[0]);
+                org.mini.gl.GL.glActiveTexture(activeTexture[0]);
+                org.mini.gl.GL.glBlendFuncSeparate(blendSrcRgb[0], blendDstRgb[0], blendSrcAlpha[0], blendDstAlpha[0]);
+                org.mini.gl.GL.glBlendEquationSeparate(blendEquationRgb[0], blendEquationAlpha[0]);
+                org.mini.gl.GL.glPixelStorei(org.mini.gl.GL.GL_PACK_ALIGNMENT, packAlignment[0]);
+            }
+
+            private void setEnabled(int cap, boolean enabled) {
+                if (enabled) {
+                    org.mini.gl.GL.glEnable(cap);
+                } else {
+                    org.mini.gl.GL.glDisable(cap);
+                }
+            }
+        }
+
         private void applyBackground(Graphics3D owner, Background background) {
             int color = background != null ? background.getColor() : 0x00000000;
             boolean clearColor = background == null || background.isColorClearEnabled();
             boolean effectiveDepthEnabled = owner.isDepthBufferEnabled();
             boolean clearDepth = effectiveDepthEnabled && (background == null || background.isDepthClearEnabled());
+            if (!clearColor && background != null && background.getImage() == null && owner.getTarget() instanceof javax.microedition.lcdui.Graphics) {
+                // 游戏常以 `setColorClearEnable(false)` 的 Background 做“只清深度”的清屏，
+                // 以便保留 bindTarget 前先画到 Graphics 目标上的 2D 背景（天空/路面）。
+                // 之前这里强制 clearColor=true 会把整张目标颜色擦成 Background.color，
+                // 导致 2D 背景丢失、整窗口闪烁。
+                // 这里改为把当前目标画布内容拷进 FBO 作为背景，从而保留 2D 背景；
+                // 拷贝不可用时再退化为强制清色。
+                clearColor = !renderExistingTargetBackground(owner);
+            }
             if (effectiveDepthEnabled) {
                 glEnable(GL_DEPTH_TEST);
                 glDepthMask(GL_TRUE);
@@ -2956,8 +3095,7 @@ public final class MiniJvmGraphics3DFactory implements Graphics3D.BackendFactory
                 return;
             }
         } catch (Throwable ignored) {
-            runnable.run();
-            return;
+            System.err.println("[M3G-WARN] Failed to check GL thread, falling back to enqueue");
         }
 
         final Object lock = new Object();
