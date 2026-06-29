@@ -1914,17 +1914,38 @@ public final class MiniJvmGraphics3DFactory implements Graphics3D.BackendFactory
                 return;
             }
 
-            float repeatX = background.getImageModeX() == Background.REPEAT
-                    ? owner.getViewportWidth() / (float) texture.width
-                    : 1f;
-            float repeatY = background.getImageModeY() == Background.REPEAT
-                    ? owner.getViewportHeight() / (float) texture.height
-                    : 1f;
+            // Match the software-backend background semantics (see Graphics3D
+            // renderBackgroundImage / resolveBackgroundCoordinate): the background
+            // crop is stretched to cover the whole viewport, and REPEAT/BORDER only
+            // differ in how out-of-range samples are resolved. Concretely, viewport
+            // coordinate p in [0,1] maps to image coordinate
+            //   cropOrigin + p * cropSize, then wrap(REPEAT) or clamp(BORDER).
+            // In texture space that is UV in
+            //   [cropOrigin/imgSize, (cropOrigin+cropSize)/imgSize].
+            // For a full-image crop (cropSize == imgSize, origin 0) this is exactly
+            // one tile [0,1], so the image fills the viewport once. Previously this
+            // code used repeat = viewport/textureSize, which pixel-tiled the image
+            // (e.g. PogoRoo's sky drawn 2x tall) and did not match the reference.
+            Image2D bgImage = background.getImage();
+            int sourceWidth = background.getCropWidth() > 0 ? background.getCropWidth() : bgImage.getWidth();
+            int sourceHeight = background.getCropHeight() > 0 ? background.getCropHeight() : bgImage.getHeight();
+            int cropX = background.getCropWidth() > 0 ? background.getCropX() : 0;
+            int cropY = background.getCropHeight() > 0 ? background.getCropY() : 0;
+            float u0 = cropX / (float) bgImage.getWidth();
+            float u1 = (cropX + sourceWidth) / (float) bgImage.getWidth();
+            float v0 = cropY / (float) bgImage.getHeight();
+            float v1 = (cropY + sourceHeight) / (float) bgImage.getHeight();
 
-            fillBackgroundVertex(0, -1f, 1f, 0f, repeatY);
-            fillBackgroundVertex(1, -1f, -1f, 0f, 0f);
-            fillBackgroundVertex(2, 1f, 1f, repeatX, repeatY);
-            fillBackgroundVertex(3, 1f, -1f, repeatX, 0f);
+            // GL texture v=0 is the first uploaded row, which is M3G image row 0
+            // (the top). The FBO is rendered with clip-space +y up, then read back
+            // flipped so that FBO-top maps to target-top. To make the target's top
+            // row show image row 0, the top quad vertex (y=+1) must sample v0 and the
+            // bottom vertex (y=-1) must sample v1. (Previously these were swapped,
+            // mirroring the background vertically.)
+            fillBackgroundVertex(0, -1f, 1f, u0, v0);   // top-left
+            fillBackgroundVertex(1, -1f, -1f, u0, v1);  // bottom-left
+            fillBackgroundVertex(2, 1f, 1f, u1, v0);    // top-right
+            fillBackgroundVertex(3, 1f, -1f, u1, v1);   // bottom-right
 
             renderBackgroundTexture(texture,
                     background.getImageModeX() == Background.REPEAT ? GL_REPEAT : GL_CLAMP_TO_EDGE,
