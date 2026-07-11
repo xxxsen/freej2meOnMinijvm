@@ -2,12 +2,8 @@ package javax.microedition.m3g;
 
 import java.awt.image.BufferedImage;
 import java.io.BufferedReader;
-import java.io.FileInputStream;
 import java.io.InputStream;
 import java.io.InputStreamReader;
-import java.io.OutputStream;
-import java.net.HttpURLConnection;
-import java.net.URL;
 import java.util.Vector;
 
 import javax.microedition.m3g.base.M3GMath;
@@ -122,16 +118,6 @@ import static org.mini.gl.GL.glTexParameteri;
 import static org.mini.glwrap.GLUtil.toCstyleBytes;
 
 public final class MiniJvmGraphics3DFactory implements Graphics3D.BackendFactory {
-
-    // 诊断开关：-Dfreej2me.m3g.diag.leak=1
-    // 仅在 FBO 句柄异常失效（理论上已被根因修复，不会再发生）时打印回退信息。
-    private static final boolean DIAG_LEAK = Boolean.getBoolean("freej2me.m3g.diag.leak");
-
-    private static void diagLog(String msg) {
-        if (DIAG_LEAK) {
-            System.err.println("[M3G-DIAG] " + msg);
-        }
-    }
 
     public Graphics3D.Backend create(Graphics3D owner, Graphics3D.Backend softwareFallback) {
         return new MiniJvmGlBackend(owner, softwareFallback);
@@ -268,7 +254,6 @@ public final class MiniJvmGraphics3DFactory implements Graphics3D.BackendFactory
                 frame.reset();
                 return;
             }
-
             final Throwable[] failure = new Throwable[1];
             final long glSubmitStartNs = System.nanoTime();
             runOnGlThreadAndWait(new Runnable() {
@@ -733,7 +718,6 @@ public final class MiniJvmGraphics3DFactory implements Graphics3D.BackendFactory
             int[] boundFbo = new int[1];
             org.mini.gl.GL.glGetIntegerv(org.mini.gl.GL.GL_FRAMEBUFFER_BINDING, boundFbo, 0);
             if (boundFbo[0] == 0) {
-                diagLog("FBO bind FAILED (bound=0), fallback to software");
                 frameBuffer.end();
                 savedState.restore();
                 throw new IllegalStateException("FBO not bound");
@@ -894,6 +878,7 @@ public final class MiniJvmGraphics3DFactory implements Graphics3D.BackendFactory
             private int[] blendEquationRgb = new int[1];
             private int[] blendEquationAlpha = new int[1];
             private int[] packAlignment = new int[1];
+            private int[] unpackAlignment = new int[1];
 
             void capture() {
                 blend = org.mini.gl.GL.glIsEnabled(GL_BLEND) != 0;
@@ -919,6 +904,7 @@ public final class MiniJvmGraphics3DFactory implements Graphics3D.BackendFactory
                 org.mini.gl.GL.glGetIntegerv(org.mini.gl.GL.GL_BLEND_EQUATION_RGB, blendEquationRgb, 0);
                 org.mini.gl.GL.glGetIntegerv(org.mini.gl.GL.GL_BLEND_EQUATION_ALPHA, blendEquationAlpha, 0);
                 org.mini.gl.GL.glGetIntegerv(org.mini.gl.GL.GL_PACK_ALIGNMENT, packAlignment, 0);
+                org.mini.gl.GL.glGetIntegerv(org.mini.gl.GL.GL_UNPACK_ALIGNMENT, unpackAlignment, 0);
             }
 
             void restore() {
@@ -946,6 +932,7 @@ public final class MiniJvmGraphics3DFactory implements Graphics3D.BackendFactory
                 org.mini.gl.GL.glBlendFuncSeparate(blendSrcRgb[0], blendDstRgb[0], blendSrcAlpha[0], blendDstAlpha[0]);
                 org.mini.gl.GL.glBlendEquationSeparate(blendEquationRgb[0], blendEquationAlpha[0]);
                 org.mini.gl.GL.glPixelStorei(org.mini.gl.GL.GL_PACK_ALIGNMENT, packAlignment[0]);
+                org.mini.gl.GL.glPixelStorei(org.mini.gl.GL.GL_UNPACK_ALIGNMENT, unpackAlignment[0]);
             }
 
             private void setEnabled(int cap, boolean enabled) {
@@ -1061,6 +1048,7 @@ public final class MiniJvmGraphics3DFactory implements Graphics3D.BackendFactory
                     && owner.getLightCount() > 0;
             applyMaterial(owner, item, geometry);
             applyLights(owner);
+
             glBindVertexArray(vao[0]);
             glBindBuffer(GL_ARRAY_BUFFER, geometry.vbo[0]);
             glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, STRIDE_BYTES, null, 0);
@@ -1277,8 +1265,13 @@ public final class MiniJvmGraphics3DFactory implements Graphics3D.BackendFactory
                     glDisable(GL_DEPTH_TEST);
                     glDepthMask(GL_FALSE);
                 }
-                glEnable(GL_BLEND);
-                glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+                // 默认 CompositingMode(null) 是 REPLACE 语义：参考实现
+                // m3gApplyDefaultCompositingMode 里 glDisable(GL_BLEND)。
+                // 这里原先误开了 ALPHA 混合(glEnable(GL_BLEND) + SRC_ALPHA)，
+                // 导致带纹理且 texel alpha<1.0 的网格(如 truckracer 卡车)被混合成
+                // 半透明/透明而看不见——场景 mesh 因显式 setBlending(REPLACE) 关了
+                // blend 反而正常。改为关闭 blend，对齐参考实现。
+                glDisable(GL_BLEND);
                 glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
                 glDisable(GL_POLYGON_OFFSET_FILL);
                 return;
@@ -1892,6 +1885,9 @@ public final class MiniJvmGraphics3DFactory implements Graphics3D.BackendFactory
                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, wrapT);
                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, filter);
                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, filter);
+                // RGB textures whose row size is not a multiple of 4 (for example 2x2 RGB = 6 bytes/row)
+                // upload incorrectly with OpenGL's default UNPACK_ALIGNMENT=4, producing checkerboard-like corruption.
+                org.mini.gl.GL.glPixelStorei(org.mini.gl.GL.GL_UNPACK_ALIGNMENT, 1);
                 glTexImage2D(GL_TEXTURE_2D, 0, uploadImage.format == Image2D.RGB ? GL_RGB : GL_RGBA,
                         uploadImage.width, uploadImage.height, 0,
                         uploadImage.format == Image2D.RGB ? GL_RGB : GL_RGBA,
@@ -1914,34 +1910,22 @@ public final class MiniJvmGraphics3DFactory implements Graphics3D.BackendFactory
                 return;
             }
 
-            // Match the software-backend background semantics (see Graphics3D
-            // renderBackgroundImage / resolveBackgroundCoordinate): the background
-            // crop is stretched to cover the whole viewport, and REPEAT/BORDER only
-            // differ in how out-of-range samples are resolved. Concretely, viewport
-            // coordinate p in [0,1] maps to image coordinate
-            //   cropOrigin + p * cropSize, then wrap(REPEAT) or clamp(BORDER).
-            // In texture space that is UV in
-            //   [cropOrigin/imgSize, (cropOrigin+cropSize)/imgSize].
-            // For a full-image crop (cropSize == imgSize, origin 0) this is exactly
-            // one tile [0,1], so the image fills the viewport once. Previously this
-            // code used repeat = viewport/textureSize, which pixel-tiled the image
-            // (e.g. PogoRoo's sky drawn 2x tall) and did not match the reference.
-            Image2D bgImage = background.getImage();
-            int sourceWidth = background.getCropWidth() > 0 ? background.getCropWidth() : bgImage.getWidth();
-            int sourceHeight = background.getCropHeight() > 0 ? background.getCropHeight() : bgImage.getHeight();
-            int cropX = background.getCropWidth() > 0 ? background.getCropX() : 0;
-            int cropY = background.getCropHeight() > 0 ? background.getCropY() : 0;
-            float u0 = cropX / (float) bgImage.getWidth();
-            float u1 = (cropX + sourceWidth) / (float) bgImage.getWidth();
-            float v0 = cropY / (float) bgImage.getHeight();
-            float v1 = (cropY + sourceHeight) / (float) bgImage.getHeight();
+            // buildBackgroundTextureSource has already expanded the Background crop
+            // rectangle into a standalone texture, including BORDER/REPEAT handling
+            // for any imaginary pixels outside the source image. Stretch that baked
+            // crop across the viewport once; re-deriving UVs from the original image
+            // would apply the crop a second time.
+            float u0 = 0f;
+            float u1 = 1f;
+            float v0 = 0f;
+            float v1 = 1f;
 
             // GL texture v=0 is the first uploaded row, which is M3G image row 0
-            // (the top). The FBO is rendered with clip-space +y up, then read back
-            // flipped so that FBO-top maps to target-top. To make the target's top
-            // row show image row 0, the top quad vertex (y=+1) must sample v0 and the
-            // bottom vertex (y=-1) must sample v1. (Previously these were swapped,
-            // mirroring the background vertically.)
+            // (the top) in the baked background texture. The FBO is rendered with
+            // clip-space +y up, then read back flipped so that FBO-top maps to
+            // target-top. To make the target's top row show texture row 0, the top
+            // quad vertex (y=+1) must sample v0 and the bottom vertex (y=-1) must
+            // sample v1.
             fillBackgroundVertex(0, -1f, 1f, u0, v0);   // top-left
             fillBackgroundVertex(1, -1f, -1f, u0, v1);  // bottom-left
             fillBackgroundVertex(2, 1f, 1f, u1, v0);    // top-right
@@ -2717,6 +2701,7 @@ public final class MiniJvmGraphics3DFactory implements Graphics3D.BackendFactory
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, wrapT);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, filter);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, filter);
+            org.mini.gl.GL.glPixelStorei(org.mini.gl.GL.GL_UNPACK_ALIGNMENT, 1);
             glTexImage2D(GL_TEXTURE_2D, 0, texture.internalGlFormat,
                     texture.width, texture.height, 0,
                     texture.pixelGlFormat,
@@ -3116,7 +3101,6 @@ public final class MiniJvmGraphics3DFactory implements Graphics3D.BackendFactory
                 return;
             }
         } catch (Throwable ignored) {
-            System.err.println("[M3G-WARN] Failed to check GL thread, falling back to enqueue");
         }
 
         final Object lock = new Object();

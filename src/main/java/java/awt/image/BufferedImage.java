@@ -190,6 +190,9 @@ public class BufferedImage extends java.awt.Image implements WritableRenderedIma
         // 之前的实现从 offset/scanlength 反推目标矩形，对非平凡 offset、
         // 子区域或单行区域读取会返回陈旧/未写入像素（典型表现：
         // 运行时构造的 Image2D 全黑，使 FUNC_REPLACE 贴图变黑）。
+        if (pixels == null) {
+            pixels = new int[offset + height * scanlength];
+        }
         int imgW = (int) gimg.getWidth();
         int imgH = (int) gimg.getHeight();
         int endY = Math.min(y + height, imgH);

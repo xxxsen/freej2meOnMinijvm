@@ -1,6 +1,7 @@
 #version 330
 #ifdef GL_ES
-precision mediump float;
+precision highp float;
+precision highp int;
 #endif
 
 in vec4 vColor;
