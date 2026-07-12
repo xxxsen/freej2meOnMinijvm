@@ -32,8 +32,7 @@ uniform int   uToonThreshold;   // 0..255
 uniform int   uToonHigh;        // 0..255
 uniform int   uToonLow;         // 0..255
 
-// blend mode: 0=NORMAL, 2=HALF, 4=ADD, 6=SUB. NORMAL/SUB/ADD are handled by GL
-// blend state; only HALF needs the 0.5 pre-multiply here (output *= 0.5).
+// blend mode: 0=NORMAL, 2=HALF, 4=ADD, 6=SUB. Blending is handled by GL state.
 uniform int uBlendMode;
 
 out vec4 fragColor;
@@ -109,12 +108,6 @@ void main() {
     }
 
     finalRgb = clamp(finalRgb, 0.0, 1.0);
-
-    // HALF blend pre-multiply: GL side uses glBlendFunc(ONE, ONE), so output *0.5
-    // yields 0.5*src + 0.5*dst. Keep alpha for sprite path, force opaque otherwise.
-    if (uBlendMode == 2) {
-        finalRgb *= 0.5;
-    }
 
     fragColor = vec4(finalRgb, uUseTextureAlpha != 0 ? baseColor.a : 1.0);
 }

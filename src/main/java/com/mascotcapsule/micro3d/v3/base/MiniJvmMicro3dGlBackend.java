@@ -58,6 +58,8 @@ public final class MiniJvmMicro3dGlBackend implements Micro3dBackend {
 
     // primitive command masks
     private static final int PRIMITIVE_TYPE_MASK = 0x7000000;
+    private static final int PRIMITVE_POINTS = 0x1000000;
+    private static final int PRIMITVE_LINES = 0x2000000;
     private static final int PRIMITVE_TRIANGLES = 0x3000000;
     private static final int PRIMITVE_QUADS = 0x4000000;
     private static final int PRIMITVE_POINT_SPRITES = 0x5000000;
@@ -68,6 +70,7 @@ public final class MiniJvmMicro3dGlBackend implements Micro3dBackend {
     private static final int PATTR_BLEND_ADD = 64;
     private static final int PATTR_BLEND_HALF = 32;
     private static final int PDATA_COLOR_PER_COMMAND = 1024;
+    private static final boolean LINEAR_FILTER = textureFilterEnabled();
 
     // bound target state
     private javax.microedition.lcdui.Graphics boundGraphics;
@@ -105,6 +108,7 @@ public final class MiniJvmMicro3dGlBackend implements Micro3dBackend {
     // per-element JNI get() in the hot vertex-assembly loop).
     private float[] posScratch = new float[0];
     private float[] nrmScratch = new float[0];
+    private byte[] colorScratch = new byte[0];
     private byte[] tcScratch = new byte[0];
 
     public MiniJvmMicro3dGlBackend() {
@@ -283,9 +287,19 @@ public final class MiniJvmMicro3dGlBackend implements Micro3dBackend {
 
     private void renderFigure(FrameState.FigureItem item, int pass, boolean depthWrite) {
         Model model = item.model;
-        if (!model.hasPolyT || item.textures == null || item.textures.length == 0) {
+        if (!model.hasPolyT && !model.hasPolyC) {
             return;
         }
+        if (model.hasPolyT && item.textures != null && item.textures.length > 0) {
+            renderFigureTextured(item, pass, depthWrite);
+        }
+        if (model.hasPolyC) {
+            renderFigureColored(item, pass);
+        }
+    }
+
+    private void renderFigureTextured(FrameState.FigureItem item, int pass, boolean depthWrite) {
+        Model model = item.model;
         boolean semiTrans = (item.attrs & ENV_ATTR_SEMI_TRANSPARENT) != 0;
         int[][][] meshes = model.subMeshesLengthsT;   // [4][numTex][2]
         ByteBuffer texCoords = model.texCoordArray;
@@ -332,6 +346,45 @@ public final class MiniJvmMicro3dGlBackend implements Micro3dBackend {
                 }
             }
             blendIndex++;
+        }
+    }
+
+    private void renderFigureColored(FrameState.FigureItem item, int pass) {
+        boolean semiTrans = (item.attrs & ENV_ATTR_SEMI_TRANSPARENT) != 0;
+        int[][] meshes = item.model.subMeshesLengthsC;
+        ByteBuffer materialData = item.model.texCoordArray;
+        int startVertex = item.model.numVerticesPolyT;
+        int length = meshes.length;
+        int blendIndex = 0;
+        int pos = 0;
+        if (semiTrans) {
+            if (pass == 0) {
+                length = 1;
+            } else {
+                int[] bucket0 = meshes[blendIndex++];
+                pos += bucket0[0] + bucket0[1];
+            }
+        } else if (pass == 1) {
+            return;
+        }
+
+        FloatBuffer vertices = item.vertices;
+        FloatBuffer normals = item.normals;
+        for (; blendIndex < length; blendIndex++) {
+            int[] bucket = meshes[blendIndex];
+            int blendMode = (semiTrans && pass == 1) ? (blendIndex << 1) : BLEND_NORMAL;
+            int cnt = bucket[0];
+            if (cnt > 0) {
+                drawFigureColorBucket(item, vertices, normals, materialData,
+                        startVertex + pos, cnt, blendMode, true, false);
+                pos += cnt;
+            }
+            cnt = bucket[1];
+            if (cnt > 0) {
+                drawFigureColorBucket(item, vertices, normals, materialData,
+                        startVertex + pos, cnt, blendMode, false, true);
+                pos += cnt;
+            }
         }
     }
 
@@ -398,6 +451,72 @@ public final class MiniJvmMicro3dGlBackend implements Micro3dBackend {
         uploadAndDraw(v, vertexCount);
     }
 
+    private void drawFigureColorBucket(FrameState.FigureItem item,
+                                       FloatBuffer vertices, FloatBuffer normals, ByteBuffer materialData,
+                                       int startVertex, int vertexCount,
+                                       int blendMode, boolean cullBack, boolean noCull) {
+        boolean globalLight = (item.attrs & ENV_ATTR_LIGHTING) != 0 && normals != null;
+        boolean toon = (item.attrs & ENV_ATTR_TOON_SHADING) != 0;
+        boolean sphereAvailable = item.specular != null
+                && (item.attrs & ENV_ATTR_SPHERE_MAP) != 0;
+        int sphereName = sphereAvailable ? ensureTexture(item.specular) : 0;
+
+        setupProgramState(null, 0, sphereName, globalLight, toon,
+                sphereAvailable, blendMode, false);
+        setCull(cullBack, noCull);
+        setBlend(blendMode);
+
+        int floatOff = startVertex * 3;
+        int floatLen = vertexCount * 3;
+        if (posScratch.length < floatLen) posScratch = new float[floatLen];
+        vertices.position(floatOff);
+        vertices.get(posScratch, 0, floatLen);
+        float[] pos = posScratch;
+        float[] nrm = null;
+        if (normals != null) {
+            if (nrmScratch.length < floatLen) nrmScratch = new float[floatLen];
+            normals.position(floatOff);
+            normals.get(nrmScratch, 0, floatLen);
+            nrm = nrmScratch;
+        }
+        int mdLen = vertexCount * 5;
+        if (tcScratch.length < mdLen) tcScratch = new byte[mdLen];
+        materialData.position(startVertex * 5);
+        materialData.get(tcScratch, 0, mdLen);
+        byte[] md = tcScratch;
+
+        vertexBuffer = ensureVertexCapacity(vertexBuffer, vertexCount * COMPONENTS_PER_VERTEX);
+        float[] v = vertexBuffer;
+        int p = 0;
+        int fp = 0;
+        int mp = 0;
+        for (int n = 0; n < vertexCount; n++) {
+            v[p++] = pos[fp];
+            v[p++] = pos[fp + 1];
+            v[p++] = pos[fp + 2];
+            if (nrm != null) {
+                v[p++] = nrm[fp];
+                v[p++] = nrm[fp + 1];
+                v[p++] = nrm[fp + 2];
+            } else {
+                v[p++] = 0f; v[p++] = 0f; v[p++] = 0f;
+            }
+            fp += 3;
+            v[p++] = (md[mp] & 0xFF) / 255f;
+            v[p++] = (md[mp + 1] & 0xFF) / 255f;
+            v[p++] = (md[mp + 2] & 0xFF) / 255f;
+            v[p++] = 1f;
+            v[p++] = 0f;
+            v[p++] = 0f;
+            v[p++] = (md[mp + 3] & 0xFF) != 0 ? 1f : 0f;
+            v[p++] = (md[mp + 4] & 0xFF) != 0 ? 1f : 0f;
+            v[p++] = 0f;
+            v[p++] = 0f;
+            mp += 5;
+        }
+        uploadAndDraw(v, vertexCount);
+    }
+
     private void renderPrimitive(FrameState.PrimitiveItem item, int pass) {
         int command = item.command;
         int type = command & PRIMITIVE_TYPE_MASK;
@@ -405,8 +524,9 @@ public final class MiniJvmMicro3dGlBackend implements Micro3dBackend {
             renderPointSprites(item, pass);
             return;
         }
-        if (type != PRIMITVE_TRIANGLES && type != PRIMITVE_QUADS) {
-            return; // points/lines deferred
+        if (type != PRIMITVE_POINTS && type != PRIMITVE_LINES
+                && type != PRIMITVE_TRIANGLES && type != PRIMITVE_QUADS) {
+            return;
         }
         int blend = item.blendMode();
         boolean drawThisPass = (blend == BLEND_NORMAL) ? pass == 0 : pass == 1;
@@ -460,10 +580,10 @@ public final class MiniJvmMicro3dGlBackend implements Micro3dBackend {
         }
         byte[] colArr = null;
         if (colors != null) {
-            if (tcScratch.length < colors.capacity()) tcScratch = new byte[colors.capacity()];
+            if (colorScratch.length < colors.capacity()) colorScratch = new byte[colors.capacity()];
             colors.position(0);
-            colors.get(tcScratch, 0, colors.capacity());
-            colArr = tcScratch;
+            colors.get(colorScratch, 0, colors.capacity());
+            colArr = colorScratch;
         }
         byte[] tc = null;
         if (hasTex) {
@@ -512,7 +632,13 @@ public final class MiniJvmMicro3dGlBackend implements Micro3dBackend {
             v[p++] = colorKey;
             v[p++] = 0f;
         }
-        uploadAndDraw(v, vertexCount);
+        int drawMode = GL_TRIANGLES;
+        if (type == PRIMITVE_LINES) {
+            drawMode = GL_LINES;
+        } else if (type == PRIMITVE_POINTS) {
+            drawMode = GL_POINTS;
+        }
+        uploadAndDraw(v, vertexCount, drawMode);
     }
 
     private void renderPointSprites(FrameState.PrimitiveItem item, int pass) {
@@ -640,10 +766,10 @@ public final class MiniJvmMicro3dGlBackend implements Micro3dBackend {
             glBlendEquation(GL_FUNC_ADD);
             glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         } else if (blendMode == BLEND_HALF) {
-            // shader pre-multiplies by 0.5; GL just adds src+dst.
             glEnable(GL_BLEND);
+            glBlendColor(0f, 0f, 0f, 0.5f);
             glBlendEquation(GL_FUNC_ADD);
-            glBlendFunc(GL_ONE, GL_ONE);
+            glBlendFuncSeparate(GL_CONSTANT_ALPHA, GL_ONE_MINUS_CONSTANT_ALPHA, GL_ONE, GL_ZERO);
         } else if (blendMode == BLEND_ADD) {
             glEnable(GL_BLEND);
             glBlendEquation(GL_FUNC_ADD);
@@ -657,12 +783,16 @@ public final class MiniJvmMicro3dGlBackend implements Micro3dBackend {
     }
 
     private void uploadAndDraw(float[] verts, int vertexCount) {
+        uploadAndDraw(verts, vertexCount, GL_TRIANGLES);
+    }
+
+    private void uploadAndDraw(float[] verts, int vertexCount, int drawMode) {
         // VAO already holds the attrib pointers (set once in ensureInitialized),
         // so we only need to re-upload the data and draw.
         glBindVertexArray(vao[0]);
         glBindBuffer(GL_ARRAY_BUFFER, vbo[0]);
         glBufferData(GL_ARRAY_BUFFER, (long) vertexCount * STRIDE, verts, 0, GL_DYNAMIC_DRAW);
-        glDrawArrays(GL_TRIANGLES, 0, vertexCount);
+        glDrawArrays(drawMode, 0, vertexCount);
     }
 
     private int ensureTexture(TextureImpl tex) {
@@ -676,8 +806,11 @@ public final class MiniJvmMicro3dGlBackend implements Micro3dBackend {
         byte[] pixels = new byte[raster.remaining()];
         raster.get(pixels);
         glBindTexture(GL_TEXTURE_2D, name[0]);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        // Match the software backend / KEmu-style texel fetch.
+        // Linear filtering on atlas edges makes block faces show dark seams.
+        int filter = LINEAR_FILTER ? GL_LINEAR : GL_NEAREST;
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, filter);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, filter);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, td.width, td.height, 0,
@@ -953,6 +1086,16 @@ public final class MiniJvmMicro3dGlBackend implements Micro3dBackend {
         return buf;
     }
 
+    private static boolean textureFilterEnabled() {
+        String mode = System.getProperty("freej2me.micro3d.textureFilter", "").trim();
+        if (mode.length() == 0) {
+            mode = System.getProperty("mascotTextureFilter", "").trim();
+        }
+        return "linear".equalsIgnoreCase(mode)
+                || "true".equalsIgnoreCase(mode)
+                || "1".equals(mode);
+    }
+
     private static void runOnGlThreadAndWait(Runnable runnable) {
         try {
             if (Thread.currentThread() == GCallBack.getInstance().getOpenglThread()) {
@@ -1012,7 +1155,11 @@ public final class MiniJvmMicro3dGlBackend implements Micro3dBackend {
         private final int[] textureBinding0 = new int[1];
         private final int[] blendSrcRgb = new int[1];
         private final int[] blendDstRgb = new int[1];
+        private final int[] blendSrcAlpha = new int[1];
+        private final int[] blendDstAlpha = new int[1];
         private final int[] blendEquationRgb = new int[1];
+        private final int[] blendEquationAlpha = new int[1];
+        private final float[] blendColor = new float[4];
         private final int[] packAlignment = new int[1];
 
         void capture() {
@@ -1032,7 +1179,11 @@ public final class MiniJvmMicro3dGlBackend implements Micro3dBackend {
             glGetIntegerv(org.mini.gl.GL.GL_TEXTURE_BINDING_2D, textureBinding0, 0);
             glGetIntegerv(org.mini.gl.GL.GL_BLEND_SRC_RGB, blendSrcRgb, 0);
             glGetIntegerv(org.mini.gl.GL.GL_BLEND_DST_RGB, blendDstRgb, 0);
+            glGetIntegerv(org.mini.gl.GL.GL_BLEND_SRC_ALPHA, blendSrcAlpha, 0);
+            glGetIntegerv(org.mini.gl.GL.GL_BLEND_DST_ALPHA, blendDstAlpha, 0);
             glGetIntegerv(org.mini.gl.GL.GL_BLEND_EQUATION_RGB, blendEquationRgb, 0);
+            glGetIntegerv(org.mini.gl.GL.GL_BLEND_EQUATION_ALPHA, blendEquationAlpha, 0);
+            glGetFloatv(org.mini.gl.GL.GL_BLEND_COLOR, blendColor, 0);
             glGetIntegerv(org.mini.gl.GL.GL_PACK_ALIGNMENT, packAlignment, 0);
         }
 
@@ -1053,8 +1204,10 @@ public final class MiniJvmMicro3dGlBackend implements Micro3dBackend {
             org.mini.gl.GL.glActiveTexture(org.mini.gl.GL.GL_TEXTURE0);
             org.mini.gl.GL.glBindTexture(GL_TEXTURE_2D, textureBinding0[0]);
             org.mini.gl.GL.glActiveTexture(activeTexture[0]);
-            org.mini.gl.GL.glBlendFunc(blendSrcRgb[0], blendDstRgb[0]);
-            org.mini.gl.GL.glBlendEquation(blendEquationRgb[0]);
+            org.mini.gl.GL.glBlendColor(blendColor[0], blendColor[1], blendColor[2], blendColor[3]);
+            org.mini.gl.GL.glBlendFuncSeparate(
+                    blendSrcRgb[0], blendDstRgb[0], blendSrcAlpha[0], blendDstAlpha[0]);
+            org.mini.gl.GL.glBlendEquationSeparate(blendEquationRgb[0], blendEquationAlpha[0]);
             org.mini.gl.GL.glPixelStorei(org.mini.gl.GL.GL_PACK_ALIGNMENT, packAlignment[0]);
         }
 
