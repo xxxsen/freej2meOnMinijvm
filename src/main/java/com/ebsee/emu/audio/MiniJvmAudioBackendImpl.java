@@ -2,12 +2,14 @@ package com.ebsee.emu.audio;
 
 import java.io.File;
 import java.io.FileInputStream;
-import java.io.FileOutputStream;
+import java.io.IOException;
 import java.io.InputStream;
 
 import javax.sound.sampled.AudioInputStream;
 import javax.sound.sampled.Clip;
 
+import org.mini.fs.InnerFile;
+import org.mini.net.SocketNative;
 import org.recompile.mobile.MiniJvmAudioBackend;
 
 /** miniJVM media backend backed by TinySoundFont and miniaudio. */
@@ -35,7 +37,8 @@ public final class MiniJvmAudioBackendImpl implements MiniJvmAudioBackend {
 
     private static String copyToTemp(InputStream input, String suffix) throws Exception {
         String path = "/tmp/j2me-audio-" + nextId() + suffix;
-        FileOutputStream output = new FileOutputStream(path);
+        long output = InnerFile.openFile(SocketNative.toCStyle(path), SocketNative.toCStyle("wb"));
+        if (output == 0) throw new IOException("cannot create media file: " + path);
         try {
             // Some MIDlet resource streams inherit InputStream's byte-at-a-time
             // bulk read. Keep each call below miniJVM's compact operand stack.
@@ -48,11 +51,16 @@ public final class MiniJvmAudioBackendImpl implements MiniJvmAudioBackend {
                 if (remaining <= 0) break;
                 int count = input.read(buffer, 0, Math.min(buffer.length, remaining));
                 if (count <= 0) break;
-                if (count > buffer.length) throw new java.io.IOException("invalid media read length: " + count);
-                output.write(buffer, 0, count);
+                if (count > buffer.length) throw new IOException("invalid media read length: " + count);
+                int offset = 0;
+                while (offset < count) {
+                    int wrote = InnerFile.writebuf(output, buffer, offset, count - offset);
+                    if (wrote <= 0) throw new IOException("cannot write media file: " + path);
+                    offset += wrote;
+                }
             }
         } finally {
-            output.close();
+            InnerFile.closeFile(output);
         }
         return path;
     }
