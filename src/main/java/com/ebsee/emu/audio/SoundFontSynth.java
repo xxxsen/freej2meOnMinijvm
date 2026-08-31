@@ -45,6 +45,16 @@ public final class SoundFontSynth {
         }
     }
 
+    public static Result renderToFile(byte[] midiData) throws IOException {
+        String wavePath = "/tmp/j2me-soundfont-" + nextId() + ".wav";
+        int durationMillis = renderToWave(midiData, cString(SOUNDFONT_PATH), cString(wavePath));
+        if (durationMillis < 0) {
+            new File(wavePath).delete();
+            throw new IOException("SoundFont MIDI renderer failed with code " + durationMillis);
+        }
+        return new Result(null, wavePath, durationMillis);
+    }
+
     public static Result renderFile(String midiPath) throws IOException {
         String wavePath = "/tmp/j2me-soundfont-" + nextId() + ".wav";
         int durationMillis = renderFileToWave(cString(midiPath), cString(SOUNDFONT_PATH), cString(wavePath));

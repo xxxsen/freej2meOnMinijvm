@@ -2,28 +2,29 @@ package com.ebsee.emu.audio;
 
 import java.io.File;
 import java.io.FileInputStream;
-import java.io.IOException;
-import java.io.InputStream;
 
 import javax.sound.sampled.AudioInputStream;
 import javax.sound.sampled.Clip;
 
-import org.mini.fs.InnerFile;
-import org.mini.net.SocketNative;
 import org.recompile.mobile.MiniJvmAudioBackend;
 
 /** miniJVM media backend backed by TinySoundFont and miniaudio. */
 public final class MiniJvmAudioBackendImpl implements MiniJvmAudioBackend {
-    private static int nextFileId;
+    public Handle create(byte[] data) throws Exception {
+        if (!isMidi(data)) return new ClipHandle(data);
+        SoundFontSynth.Result rendered = SoundFontSynth.renderToFile(data);
+        System.out.println("[audio] SoundFont MIDI rendered");
+        return new ClipHandle(rendered.wavePath, rendered.durationMicros, true);
+    }
 
-    public Handle create(InputStream stream, int remainingLength) throws Exception {
-        String sourcePath = copyToTemp(stream, remainingLength, ".media");
-        if (!isMidi(sourcePath)) return new ClipHandle(sourcePath, -1, true);
+    public Handle createFile(String path) throws Exception {
+        if (!isMidi(path)) return new ClipHandle(path, -1, true);
         try {
-            SoundFontSynth.Result rendered = SoundFontSynth.renderFile(sourcePath);
+            SoundFontSynth.Result rendered = SoundFontSynth.renderFile(path);
+            System.out.println("[audio] SoundFont MIDI rendered");
             return new ClipHandle(rendered.wavePath, rendered.durationMicros, true);
         } finally {
-            new File(sourcePath).delete();
+            new File(path).delete();
         }
     }
 
@@ -31,38 +32,16 @@ public final class MiniJvmAudioBackendImpl implements MiniJvmAudioBackend {
         new ClipHandle(createToneWave(note, duration, volume)).start();
     }
 
-    private static synchronized int nextId() {
-        return nextFileId++;
-    }
-
-    private static String copyToTemp(InputStream input, int remaining, String suffix) throws Exception {
-        String path = "/tmp/j2me-audio-" + nextId() + suffix;
-        long output = InnerFile.openFile(SocketNative.toCStyle(path), SocketNative.toCStyle("wb"));
-        if (output == 0) throw new IOException("cannot create media file: " + path);
-        try {
-            // MIDlet JAR and byte-array streams expose their remaining slice.
-            // Read it once: repeated interpreted calls retain operand slots on
-            // the compact VM until this method returns.
-            if (remaining <= 0) throw new IOException("media stream length is unavailable");
-            byte[] buffer = new byte[remaining];
-            int count = input.read(buffer, 0, remaining);
-            if (count <= 0 || count > remaining) throw new IOException("invalid media read length: " + count);
-            int offset = 0;
-            while (offset < count) {
-                int wrote = InnerFile.writebuf(output, buffer, offset, count - offset);
-                if (wrote <= 0) throw new IOException("cannot write media file: " + path);
-                offset += wrote;
-            }
-        } finally {
-            InnerFile.closeFile(output);
-        }
-        return path;
+    private static boolean isMidi(byte[] data) {
+        return data.length >= 4 && data[0] == 'M' && data[1] == 'T'
+                && data[2] == 'h' && data[3] == 'd';
     }
 
     private static boolean isMidi(String path) throws Exception {
         FileInputStream input = new FileInputStream(path);
         try {
-            return input.read() == 'M' && input.read() == 'T' && input.read() == 'h' && input.read() == 'd';
+            return input.read() == 'M' && input.read() == 'T'
+                    && input.read() == 'h' && input.read() == 'd';
         } finally {
             input.close();
         }
