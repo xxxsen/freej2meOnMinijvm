@@ -16,8 +16,8 @@ import org.recompile.mobile.MiniJvmAudioBackend;
 public final class MiniJvmAudioBackendImpl implements MiniJvmAudioBackend {
     private static int nextFileId;
 
-    public Handle create(InputStream stream) throws Exception {
-        String sourcePath = copyToTemp(stream, ".media");
+    public Handle create(InputStream stream, int remainingLength) throws Exception {
+        String sourcePath = copyToTemp(stream, remainingLength, ".media");
         if (!isMidi(sourcePath)) return new ClipHandle(sourcePath, -1, true);
         try {
             SoundFontSynth.Result rendered = SoundFontSynth.renderFile(sourcePath);
@@ -35,29 +35,23 @@ public final class MiniJvmAudioBackendImpl implements MiniJvmAudioBackend {
         return nextFileId++;
     }
 
-    private static String copyToTemp(InputStream input, String suffix) throws Exception {
+    private static String copyToTemp(InputStream input, int remaining, String suffix) throws Exception {
         String path = "/tmp/j2me-audio-" + nextId() + suffix;
         long output = InnerFile.openFile(SocketNative.toCStyle(path), SocketNative.toCStyle("wb"));
         if (output == 0) throw new IOException("cannot create media file: " + path);
         try {
-            // Some MIDlet resource streams inherit InputStream's byte-at-a-time
-            // bulk read. Keep each call below miniJVM's compact operand stack.
-            byte[] buffer = new byte[256];
-            while (true) {
-                // ByteArrayInputStream and JAR resource streams report the
-                // exact remaining length. Stop there because a few old MIDlet
-                // streams return zero bytes instead of -1 after their slice.
-                int remaining = input.available();
-                if (remaining <= 0) break;
-                int count = input.read(buffer, 0, Math.min(buffer.length, remaining));
-                if (count <= 0) break;
-                if (count > buffer.length) throw new IOException("invalid media read length: " + count);
-                int offset = 0;
-                while (offset < count) {
-                    int wrote = InnerFile.writebuf(output, buffer, offset, count - offset);
-                    if (wrote <= 0) throw new IOException("cannot write media file: " + path);
-                    offset += wrote;
-                }
+            // MIDlet JAR and byte-array streams expose their remaining slice.
+            // Read it once: repeated interpreted calls retain operand slots on
+            // the compact VM until this method returns.
+            if (remaining <= 0) throw new IOException("media stream length is unavailable");
+            byte[] buffer = new byte[remaining];
+            int count = input.read(buffer, 0, remaining);
+            if (count <= 0 || count > remaining) throw new IOException("invalid media read length: " + count);
+            int offset = 0;
+            while (offset < count) {
+                int wrote = InnerFile.writebuf(output, buffer, offset, count - offset);
+                if (wrote <= 0) throw new IOException("cannot write media file: " + path);
+                offset += wrote;
             }
         } finally {
             InnerFile.closeFile(output);
