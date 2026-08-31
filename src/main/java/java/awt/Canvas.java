@@ -37,7 +37,11 @@ public class Canvas extends Component {
     @Override
     public void setSize(int w, int h) {
         super.setSize(w, h);
-        getPeer().getParent().reAlign();
+        // AWT components may be sized before they are added to a container.
+        // miniGUI has no parent to realign at that point.
+        if (getPeer().getParent() != null) {
+            getPeer().getParent().reAlign();
+        }
         bimg = null;
     }
 
