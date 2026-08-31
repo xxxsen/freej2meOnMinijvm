@@ -11,8 +11,20 @@ public class FontMetrics {
         return (int) font.bitmapfont.stringWidth(str);
     }
 
+    public int charWidth(char ch) {
+        return font.bitmapfont.charWidth(ch);
+    }
+
     public int getAscent() {
-        return font.bitmapfont.getHeight();
+        return getHeight() - getDescent();
+    }
+
+    public int getDescent() {
+        return Math.max(1, getHeight() / 4);
+    }
+
+    public int getLeading() {
+        return 0;
     }
 
     public int getHeight() {
