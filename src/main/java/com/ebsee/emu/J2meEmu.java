@@ -39,7 +39,11 @@ public class J2meEmu extends GApplication implements XuiAppHolder {
         checkMidletHome();//检测midlet home目录在不在，不在就创建一个
         File webMidlet = new File("/game.jar");
         if (webMidlet.exists()) {
-            main(new String[]{"file:" + webMidlet.getAbsolutePath(), getRmsRoot()});
+            // The web host mounts this directory as IDBFS before miniJVM starts.
+            // RecordStore appends its own rms/ directory to the supplied data
+            // root, so passing the application save root here would leave saves
+            // in MEMFS and lose them on a page reload.
+            main(new String[]{"file:" + webMidlet.getAbsolutePath(), "/home/web_user"});
         } else {
             copyFiles();
             openFileChooser();
