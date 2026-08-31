@@ -41,6 +41,7 @@ public final class MiniJvmAudioBackendImpl implements MiniJvmAudioBackend {
             while (true) {
                 int count = input.read(buffer, 0, buffer.length);
                 if (count <= 0) break;
+                if (count > buffer.length) throw new java.io.IOException("invalid media read length: " + count);
                 output.write(buffer, 0, count);
             }
         } finally {
