@@ -36,8 +36,13 @@ public class J2meEmu extends GApplication implements XuiAppHolder {
         gform = new EmuForm(this);
         gform.addButtons();
         checkMidletHome();//检测midlet home目录在不在，不在就创建一个
-        copyFiles();
-        openFileChooser();
+        File webMidlet = new File("/game.jar");
+        if (webMidlet.exists()) {
+            main(new String[]{"file:" + webMidlet.getAbsolutePath(), getRmsRoot()});
+        } else {
+            copyFiles();
+            openFileChooser();
+        }
         gform.setSizeChangeListener(new GSizeChangeListener() {
             @Override
             public void onSizeChange(int i, int i1) {
@@ -130,5 +135,3 @@ public class J2meEmu extends GApplication implements XuiAppHolder {
         return null;
     }
 }
-
-
