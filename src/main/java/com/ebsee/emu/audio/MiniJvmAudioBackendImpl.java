@@ -37,7 +37,9 @@ public final class MiniJvmAudioBackendImpl implements MiniJvmAudioBackend {
         String path = "/tmp/j2me-audio-" + nextId() + suffix;
         FileOutputStream output = new FileOutputStream(path);
         try {
-            byte[] buffer = new byte[4096];
+            // Some MIDlet resource streams inherit InputStream's byte-at-a-time
+            // bulk read. Keep each call below miniJVM's compact operand stack.
+            byte[] buffer = new byte[256];
             while (true) {
                 int count = input.read(buffer, 0, buffer.length);
                 if (count <= 0) break;
