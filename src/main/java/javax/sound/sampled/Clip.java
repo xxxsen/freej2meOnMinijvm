@@ -95,6 +95,10 @@ public class Clip {
         return frameLength;
     }
 
+    public long getMicrosecondLength() {
+        return durationMicros;
+    }
+
     public void setMicrosecondPosition(long microseconds) {
         boolean restart = isRunning();
         stop();
@@ -129,6 +133,10 @@ public class Clip {
 
     public boolean isRunning() {
         return sound != null && sound.isPlaying();
+    }
+
+    public void setVolume(float volume) {
+        if (sound != null) sound.setVolume(Math.max(0.0f, Math.min(1.0f, volume)));
     }
 
     public void loop(int count) {

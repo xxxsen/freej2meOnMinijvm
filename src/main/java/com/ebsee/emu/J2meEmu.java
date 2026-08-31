@@ -7,6 +7,9 @@ import org.mini.gui.callback.GCallBack;
 import org.mini.gui.event.GSizeChangeListener;
 import org.mini.layout.loader.XuiAppHolder;
 import org.recompile.freej2me.MiniJvmFrontend;
+import org.recompile.mobile.MobilePlatform;
+
+import com.ebsee.emu.audio.MiniJvmAudioBackendImpl;
 
 import java.io.File;
 import java.io.FileFilter;
@@ -122,6 +125,7 @@ public class J2meEmu extends GApplication implements XuiAppHolder {
     public static void main(String args[]) {
         String jarLocation = args.length > 0 ? args[0] : "file:/game.jar";
         String dataPath = args.length > 1 ? args[1] : "/home/web_user";
+        MobilePlatform.miniJvmAudioBackend = new MiniJvmAudioBackendImpl();
         new MiniJvmFrontend(jarLocation, dataPath);
     }
 
