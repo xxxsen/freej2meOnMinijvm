@@ -25,7 +25,7 @@ public class EmuForm extends GForm implements GChildrenListener {
             KeyEvent.VK_NUMPAD7, KeyEvent.VK_NUMPAD8, KeyEvent.VK_NUMPAD9,//
             KeyEvent.VK_NUMPAD4, KeyEvent.VK_NUMPAD5, KeyEvent.VK_NUMPAD6,//
             KeyEvent.VK_NUMPAD1, KeyEvent.VK_NUMPAD2, KeyEvent.VK_NUMPAD3,//
-            KeyEvent.VK_ASTERISK, KeyEvent.VK_NUMPAD0, KeyEvent.VK_NUMBER_SIGN,//
+            KeyEvent.VK_E, KeyEvent.VK_NUMPAD0, KeyEvent.VK_R,//
     };
 
     char[] NUM_CHAR = {
@@ -245,91 +245,93 @@ public class EmuForm extends GForm implements GChildrenListener {
             case Glfw.GLFW_KEY_0:
             case Glfw.GLFW_KEY_KP_0: {
                 if (action == Glfw.GLFW_PRESS || action == Glfw.GLFW_RELEASE) {
-                    dispathKeyEvent(action == Glfw.GLFW_PRESS, KeyEvent.VK_0, '0', KeyEvent.KEY_LOCATION_NUMPAD);
+                    dispathKeyEvent(action == Glfw.GLFW_PRESS, KeyEvent.VK_NUMPAD0, '0', KeyEvent.KEY_LOCATION_NUMPAD);
                 }
                 break;
             }
             case Glfw.GLFW_KEY_1:
             case Glfw.GLFW_KEY_KP_1: {
                 if (action == Glfw.GLFW_PRESS || action == Glfw.GLFW_RELEASE) {
-                    dispathKeyEvent(action == Glfw.GLFW_PRESS, KeyEvent.VK_7, '7', KeyEvent.KEY_LOCATION_NUMPAD);
+                    dispathKeyEvent(action == Glfw.GLFW_PRESS, KeyEvent.VK_NUMPAD7, '7', KeyEvent.KEY_LOCATION_NUMPAD);
                 }
                 break;
             }
             case Glfw.GLFW_KEY_2:
             case Glfw.GLFW_KEY_KP_2: {
                 if (action == Glfw.GLFW_PRESS || action == Glfw.GLFW_RELEASE) {
-                    dispathKeyEvent(action == Glfw.GLFW_PRESS, KeyEvent.VK_8, '8', KeyEvent.KEY_LOCATION_NUMPAD);
+                    dispathKeyEvent(action == Glfw.GLFW_PRESS, KeyEvent.VK_NUMPAD8, '8', KeyEvent.KEY_LOCATION_NUMPAD);
                 }
                 break;
             }
             case Glfw.GLFW_KEY_3:
             case Glfw.GLFW_KEY_KP_3: {
                 if (action == Glfw.GLFW_PRESS || action == Glfw.GLFW_RELEASE) {
-                    dispathKeyEvent(action == Glfw.GLFW_PRESS, KeyEvent.VK_9, '9', KeyEvent.KEY_LOCATION_NUMPAD);
+                    dispathKeyEvent(action == Glfw.GLFW_PRESS, KeyEvent.VK_NUMPAD9, '9', KeyEvent.KEY_LOCATION_NUMPAD);
                 }
                 break;
             }
             case Glfw.GLFW_KEY_4:
             case Glfw.GLFW_KEY_KP_4: {
                 if (action == Glfw.GLFW_PRESS || action == Glfw.GLFW_RELEASE) {
-                    dispathKeyEvent(action == Glfw.GLFW_PRESS, KeyEvent.VK_4, '4', KeyEvent.KEY_LOCATION_NUMPAD);
+                    dispathKeyEvent(action == Glfw.GLFW_PRESS, KeyEvent.VK_NUMPAD4, '4', KeyEvent.KEY_LOCATION_NUMPAD);
                 }
                 break;
             }
             case Glfw.GLFW_KEY_5:
             case Glfw.GLFW_KEY_KP_5: {
                 if (action == Glfw.GLFW_PRESS || action == Glfw.GLFW_RELEASE) {
-                    dispathKeyEvent(action == Glfw.GLFW_PRESS, KeyEvent.VK_5, '5', KeyEvent.KEY_LOCATION_NUMPAD);
+                    dispathKeyEvent(action == Glfw.GLFW_PRESS, KeyEvent.VK_NUMPAD5, '5', KeyEvent.KEY_LOCATION_NUMPAD);
                 }
                 break;
             }
             case Glfw.GLFW_KEY_6:
             case Glfw.GLFW_KEY_KP_6: {
                 if (action == Glfw.GLFW_PRESS || action == Glfw.GLFW_RELEASE) {
-                    dispathKeyEvent(action == Glfw.GLFW_PRESS, KeyEvent.VK_6, '6', KeyEvent.KEY_LOCATION_NUMPAD);
+                    dispathKeyEvent(action == Glfw.GLFW_PRESS, KeyEvent.VK_NUMPAD6, '6', KeyEvent.KEY_LOCATION_NUMPAD);
                 }
                 break;
             }
             case Glfw.GLFW_KEY_7:
             case Glfw.GLFW_KEY_KP_7: {
                 if (action == Glfw.GLFW_PRESS || action == Glfw.GLFW_RELEASE) {
-                    dispathKeyEvent(action == Glfw.GLFW_PRESS, KeyEvent.VK_1, '1', KeyEvent.KEY_LOCATION_NUMPAD);
+                    dispathKeyEvent(action == Glfw.GLFW_PRESS, KeyEvent.VK_NUMPAD1, '1', KeyEvent.KEY_LOCATION_NUMPAD);
                 }
                 break;
             }
             case Glfw.GLFW_KEY_8:
             case Glfw.GLFW_KEY_KP_8: {
                 if (action == Glfw.GLFW_PRESS || action == Glfw.GLFW_RELEASE) {
-                    dispathKeyEvent(action == Glfw.GLFW_PRESS, KeyEvent.VK_2, '2', KeyEvent.KEY_LOCATION_NUMPAD);
+                    dispathKeyEvent(action == Glfw.GLFW_PRESS, KeyEvent.VK_NUMPAD2, '2', KeyEvent.KEY_LOCATION_NUMPAD);
                 }
                 break;
             }
             case Glfw.GLFW_KEY_9:
             case Glfw.GLFW_KEY_KP_9: {
                 if (action == Glfw.GLFW_PRESS || action == Glfw.GLFW_RELEASE) {
-                    dispathKeyEvent(action == Glfw.GLFW_PRESS, KeyEvent.VK_3, '3', KeyEvent.KEY_LOCATION_NUMPAD);
+                    dispathKeyEvent(action == Glfw.GLFW_PRESS, KeyEvent.VK_NUMPAD3, '3', KeyEvent.KEY_LOCATION_NUMPAD);
                 }
                 break;
             }
             case Glfw.GLFW_KEY_KP_MULTIPLY: {
                 if (action == Glfw.GLFW_PRESS || action == Glfw.GLFW_RELEASE) {
-                    dispathKeyEvent(action == Glfw.GLFW_PRESS, KeyEvent.VK_ASTERISK, '*', KeyEvent.KEY_LOCATION_NUMPAD);
+                    dispathKeyEvent(action == Glfw.GLFW_PRESS, KeyEvent.VK_E, '*', KeyEvent.KEY_LOCATION_NUMPAD);
                 }
                 break;
             }
             case Glfw.GLFW_KEY_KP_DIVIDE: {
                 if (action == Glfw.GLFW_PRESS || action == Glfw.GLFW_RELEASE) {
-                    dispathKeyEvent(action == Glfw.GLFW_PRESS, KeyEvent.VK_NUMBER_SIGN, '#', KeyEvent.KEY_LOCATION_NUMPAD);
+                    dispathKeyEvent(action == Glfw.GLFW_PRESS, KeyEvent.VK_R, '#', KeyEvent.KEY_LOCATION_NUMPAD);
                 }
                 break;
             }
+            case Glfw.GLFW_KEY_Q:
             case Glfw.GLFW_KEY_F1: {
                 if (action == Glfw.GLFW_PRESS || action == Glfw.GLFW_RELEASE) {
                     dispathKeyEvent(action == Glfw.GLFW_PRESS, KeyEvent.VK_Q, 'q', KeyEvent.KEY_LOCATION_UNKNOWN);
                 }
                 break;
             }
+            case Glfw.GLFW_KEY_E:
             case Glfw.GLFW_KEY_F2: {
                 if (action == Glfw.GLFW_PRESS || action == Glfw.GLFW_RELEASE) {
                     dispathKeyEvent(action == Glfw.GLFW_PRESS, KeyEvent.VK_W, 'w', KeyEvent.KEY_LOCATION_UNKNOWN);
