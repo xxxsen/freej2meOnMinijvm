@@ -1,6 +1,7 @@
 package com.ebsee.emu.audio;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 
@@ -13,18 +14,15 @@ import org.recompile.mobile.MiniJvmAudioBackend;
 public final class MiniJvmAudioBackendImpl implements MiniJvmAudioBackend {
     private static int nextFileId;
 
-    public Handle createMidi(InputStream stream) throws Exception {
-        String midiPath = copyToTemp(stream, ".mid");
+    public Handle create(InputStream stream) throws Exception {
+        String sourcePath = copyToTemp(stream, ".media");
+        if (!isMidi(sourcePath)) return new ClipHandle(sourcePath, -1, true);
         try {
-            SoundFontSynth.Result rendered = SoundFontSynth.renderFile(midiPath);
+            SoundFontSynth.Result rendered = SoundFontSynth.renderFile(sourcePath);
             return new ClipHandle(rendered.wavePath, rendered.durationMicros, true);
         } finally {
-            new File(midiPath).delete();
+            new File(sourcePath).delete();
         }
-    }
-
-    public Handle createPcm(InputStream stream) throws Exception {
-        return new ClipHandle(copyToTemp(stream, ".wav"), -1, true);
     }
 
     public void playTone(int note, int duration, int volume) throws Exception {
@@ -49,6 +47,15 @@ public final class MiniJvmAudioBackendImpl implements MiniJvmAudioBackend {
             output.close();
         }
         return path;
+    }
+
+    private static boolean isMidi(String path) throws Exception {
+        FileInputStream input = new FileInputStream(path);
+        try {
+            return input.read() == 'M' && input.read() == 'T' && input.read() == 'h' && input.read() == 'd';
+        } finally {
+            input.close();
+        }
     }
 
     private static byte[] createToneWave(int note, int duration, int volume) {
