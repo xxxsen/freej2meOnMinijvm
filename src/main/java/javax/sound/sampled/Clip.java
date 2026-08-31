@@ -17,6 +17,7 @@ public class Clip {
     private static MaEngine sharedEngine;
 
     private byte[] audioData;
+    private String audioPath;
     private MaDecoder decoder;
     private MaSound sound;
     private int loopCount;
@@ -60,10 +61,16 @@ public class Clip {
         initializeSound();
     }
 
+    public void open(String path) {
+        audioData = null;
+        audioPath = path;
+        initializeSound();
+    }
+
     private void initializeSound() {
-        if (audioData == null || audioData.length == 0) return;
+        if ((audioData == null || audioData.length == 0) && audioPath == null) return;
         if (sound != null) sound.stop();
-        decoder = new MaDecoder(audioData);
+        decoder = audioPath != null ? new MaDecoder(audioPath) : new MaDecoder(audioData);
         if (decoder.getHandle() == 0) {
             throw new RuntimeException("Unsupported or invalid audio data");
         }
@@ -79,6 +86,7 @@ public class Clip {
     public void close() {
         stop();
         audioData = null;
+        audioPath = null;
         sound = null;
         decoder = null;
     }
@@ -106,7 +114,7 @@ public class Clip {
 
         // The exposed miniaudio API has no seek binding. J2ME players most often
         // rewind to zero, so recreate the data source for that operation.
-        if (baseMicros == 0 && audioData != null) initializeSound();
+        if (baseMicros == 0 && (audioData != null || audioPath != null)) initializeSound();
         if (restart) start();
     }
 
@@ -118,7 +126,7 @@ public class Clip {
     }
 
     public void start() {
-        if (sound == null && audioData != null) initializeSound();
+        if (sound == null && (audioData != null || audioPath != null)) initializeSound();
         if (sound == null || sound.isPlaying()) return;
         sound.setLooping(loopCount != 0);
         startedAtMillis = System.currentTimeMillis();

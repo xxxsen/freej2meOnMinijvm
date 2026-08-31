@@ -36,13 +36,23 @@ public final class SoundFontSynth {
                 while ((count = input.read(buffer)) >= 0) {
                     if (count > 0) output.write(buffer, 0, count);
                 }
-                return new Result(output.toByteArray(), durationMillis);
+                return new Result(output.toByteArray(), null, durationMillis);
             } finally {
                 input.close();
             }
         } finally {
             waveFile.delete();
         }
+    }
+
+    public static Result renderFile(String midiPath) throws IOException {
+        String wavePath = "/tmp/j2me-soundfont-" + nextId() + ".wav";
+        int durationMillis = renderFileToWave(cString(midiPath), cString(SOUNDFONT_PATH), cString(wavePath));
+        if (durationMillis < 0) {
+            new File(wavePath).delete();
+            throw new IOException("SoundFont MIDI renderer failed with code " + durationMillis);
+        }
+        return new Result(null, wavePath, durationMillis);
     }
 
     private static synchronized int nextId() {
@@ -57,13 +67,16 @@ public final class SoundFontSynth {
     }
 
     private static native int renderToWave(byte[] midiData, byte[] soundfontPath, byte[] wavePath);
+    private static native int renderFileToWave(byte[] midiPath, byte[] soundfontPath, byte[] wavePath);
 
     public static final class Result {
         public final byte[] waveData;
+        public final String wavePath;
         public final long durationMicros;
 
-        Result(byte[] waveData, int durationMillis) {
+        Result(byte[] waveData, String wavePath, int durationMillis) {
             this.waveData = waveData;
+            this.wavePath = wavePath;
             this.durationMicros = durationMillis * 1000L;
         }
     }

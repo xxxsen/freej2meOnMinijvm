@@ -1,5 +1,9 @@
 package com.ebsee.emu.audio;
 
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+
 import javax.sound.sampled.AudioInputStream;
 import javax.sound.sampled.Clip;
 
@@ -7,17 +11,44 @@ import org.recompile.mobile.MiniJvmAudioBackend;
 
 /** miniJVM media backend backed by TinySoundFont and miniaudio. */
 public final class MiniJvmAudioBackendImpl implements MiniJvmAudioBackend {
-    public Handle createMidi(byte[] data) throws Exception {
-        SoundFontSynth.Result rendered = SoundFontSynth.render(data);
-        return new ClipHandle(rendered.waveData);
+    private static int nextFileId;
+
+    public Handle createMidi(InputStream stream) throws Exception {
+        String midiPath = copyToTemp(stream, ".mid");
+        try {
+            SoundFontSynth.Result rendered = SoundFontSynth.renderFile(midiPath);
+            return new ClipHandle(rendered.wavePath, rendered.durationMicros, true);
+        } finally {
+            new File(midiPath).delete();
+        }
     }
 
-    public Handle createPcm(byte[] data) throws Exception {
-        return new ClipHandle(data);
+    public Handle createPcm(InputStream stream) throws Exception {
+        return new ClipHandle(copyToTemp(stream, ".wav"), -1, true);
     }
 
     public void playTone(int note, int duration, int volume) throws Exception {
         new ClipHandle(createToneWave(note, duration, volume)).start();
+    }
+
+    private static synchronized int nextId() {
+        return nextFileId++;
+    }
+
+    private static String copyToTemp(InputStream input, String suffix) throws Exception {
+        String path = "/tmp/j2me-audio-" + nextId() + suffix;
+        FileOutputStream output = new FileOutputStream(path);
+        try {
+            byte[] buffer = new byte[4096];
+            while (true) {
+                int count = input.read(buffer, 0, buffer.length);
+                if (count <= 0) break;
+                output.write(buffer, 0, count);
+            }
+        } finally {
+            output.close();
+        }
+        return path;
     }
 
     private static byte[] createToneWave(int note, int duration, int volume) {
@@ -65,18 +96,31 @@ public final class MiniJvmAudioBackendImpl implements MiniJvmAudioBackend {
 
     private static final class ClipHandle implements Handle {
         private final Clip clip = new Clip();
+        private final String ownedPath;
+        private final long durationMicros;
 
         ClipHandle(byte[] data) throws Exception {
+            ownedPath = null;
+            durationMicros = -1;
             clip.open(new AudioInputStream(data));
+        }
+
+        ClipHandle(String path, long durationMicros, boolean ownFile) throws Exception {
+            this.ownedPath = ownFile ? path : null;
+            this.durationMicros = durationMicros;
+            clip.open(path);
         }
 
         public void start() { clip.start(); }
         public void stop() { clip.stop(); }
-        public void close() { clip.close(); }
+        public void close() {
+            clip.close();
+            if (ownedPath != null) new File(ownedPath).delete();
+        }
         public void setLoopCount(int count) { clip.loop(count < 0 ? Clip.LOOP_CONTINUOUSLY : Math.max(0, count - 1)); }
         public long setMediaTime(long value) { clip.setMicrosecondPosition(value); return clip.getMicrosecondPosition(); }
         public long getMediaTime() { return clip.getMicrosecondPosition(); }
-        public long getDuration() { return clip.getMicrosecondLength(); }
+        public long getDuration() { return durationMicros >= 0 ? durationMicros : clip.getMicrosecondLength(); }
         public boolean isRunning() { return clip.isRunning(); }
         public void setVolume(int level) { clip.setVolume(level / 100.0f); }
     }
