@@ -41,7 +41,12 @@ public final class MiniJvmAudioBackendImpl implements MiniJvmAudioBackend {
             // bulk read. Keep each call below miniJVM's compact operand stack.
             byte[] buffer = new byte[256];
             while (true) {
-                int count = input.read(buffer, 0, buffer.length);
+                // ByteArrayInputStream and JAR resource streams report the
+                // exact remaining length. Stop there because a few old MIDlet
+                // streams return zero bytes instead of -1 after their slice.
+                int remaining = input.available();
+                if (remaining <= 0) break;
+                int count = input.read(buffer, 0, Math.min(buffer.length, remaining));
                 if (count <= 0) break;
                 if (count > buffer.length) throw new java.io.IOException("invalid media read length: " + count);
                 output.write(buffer, 0, count);
