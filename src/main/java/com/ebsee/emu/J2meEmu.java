@@ -126,6 +126,7 @@ public class J2meEmu extends GApplication implements XuiAppHolder {
         String jarLocation = args.length > 0 ? args[0] : "file:/game.jar";
         String dataPath = args.length > 1 ? args[1] : "/home/web_user";
         MobilePlatform.miniJvmAudioBackend = new MiniJvmAudioBackendImpl();
+        System.out.println("miniJVM audio backend installed");
         new MiniJvmFrontend(jarLocation, dataPath);
     }
 
