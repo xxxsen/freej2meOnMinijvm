@@ -6,9 +6,7 @@ import org.mini.gui.*;
 import org.mini.gui.callback.GCallBack;
 import org.mini.gui.event.GSizeChangeListener;
 import org.mini.layout.loader.XuiAppHolder;
-import org.recompile.freej2me.FreeJ2ME;
-import org.recompile.mobile.Mobile;
-import org.recompile.mobile.MobilePlatform;
+import org.recompile.freej2me.MiniJvmFrontend;
 
 import java.io.File;
 import java.io.FileFilter;
@@ -122,7 +120,9 @@ public class J2meEmu extends GApplication implements XuiAppHolder {
     }
 
     public static void main(String args[]) {
-        FreeJ2ME app = new FreeJ2ME(args);
+        String jarLocation = args.length > 0 ? args[0] : "file:/game.jar";
+        String dataPath = args.length > 1 ? args[1] : "/home/web_user";
+        new MiniJvmFrontend(jarLocation, dataPath);
     }
 
     @Override

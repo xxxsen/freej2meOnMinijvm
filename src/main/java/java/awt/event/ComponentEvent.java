@@ -2,7 +2,6 @@ package java.awt.event;
 
 import java.awt.*;
 import java.awt.AWTEvent;
-import java.lang.annotation.Native;
 
 public class ComponentEvent extends AWTEvent {
 
@@ -19,25 +18,21 @@ public class ComponentEvent extends AWTEvent {
     /**
      * This event indicates that the component's position changed.
      */
-    @Native
     public static final int COMPONENT_MOVED = COMPONENT_FIRST;
 
     /**
      * This event indicates that the component's size changed.
      */
-    @Native
     public static final int COMPONENT_RESIZED = 1 + COMPONENT_FIRST;
 
     /**
      * This event indicates that the component was made visible.
      */
-    @Native
     public static final int COMPONENT_SHOWN = 2 + COMPONENT_FIRST;
 
     /**
      * This event indicates that the component was rendered invisible.
      */
-    @Native
     public static final int COMPONENT_HIDDEN = 3 + COMPONENT_FIRST;
 
     /*

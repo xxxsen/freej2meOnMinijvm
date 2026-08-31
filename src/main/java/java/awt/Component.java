@@ -192,6 +192,10 @@ public class Component implements ImageObserver, MenuContainer,
     }
 
     public void repaint() {
+        paint(getGraphics());
+        if (peer != null) {
+            peer.flushNow();
+        }
     }
 
     public void requestFocus() {

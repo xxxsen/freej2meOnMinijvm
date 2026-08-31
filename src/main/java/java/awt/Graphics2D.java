@@ -33,4 +33,10 @@ public abstract class Graphics2D extends Graphics {
 
     }
 
+    public void setRenderingHint(RenderingHints.Key key, Object value) {
+    }
+
+    public void dispose() {
+    }
+
 }

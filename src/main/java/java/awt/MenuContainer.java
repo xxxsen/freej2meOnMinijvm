@@ -1,5 +1,7 @@
 package java.awt;
 
+import java.awt.event.Event;
+
 public interface MenuContainer {
     Font getFont();
     void remove(MenuComponent comp);

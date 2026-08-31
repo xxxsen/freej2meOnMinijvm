@@ -145,6 +145,7 @@ public class BitmapFont {
                     1.0f,
                     true, rgb
             );
+            canvas.syncPixelsFromNative();
             return chinfo[ARR_XADVANCE];
         }
         return 0;

@@ -1,6 +1,5 @@
 package java.awt.image;
 
-import org.mini.gl.GLMath;
 import org.mini.gui.GGraphics;
 import org.mini.gui.GObject;
 
@@ -46,27 +45,31 @@ class BufferedImageGraphics extends Graphics2D {
         transX = transY = 0;
     }
 
-    private static void writePixel(byte[] data, int pixelIndex, int argb) {
+    private static void writePixel(int[] data, int pixelIndex, int argb) {
         int alpha = (argb >>> 24) & 0xff;
         if (alpha == 0) {
             return;
         }
-        int offset = pixelIndex * CELL_BYTES;
-        int blue = argb & 0xff;
-        int green = (argb >>> 8) & 0xff;
-        int red = (argb >>> 16) & 0xff;
         if (alpha == 0xff) {
-            data[offset] = (byte) blue;
-            data[offset + 1] = (byte) green;
-            data[offset + 2] = (byte) red;
-            data[offset + 3] = (byte) alpha;
+            data[pixelIndex] = argb;
             return;
         }
-        float factor = alpha / 255f;
-        float inverse = 1f - factor;
-        data[offset] = (byte) (blue * factor + inverse * (data[offset] & 0xff));
-        data[offset + 1] = (byte) (green * factor + inverse * (data[offset + 1] & 0xff));
-        data[offset + 2] = (byte) (red * factor + inverse * (data[offset + 2] & 0xff));
+        int dst = data[pixelIndex];
+        int inverse = 255 - alpha;
+        int red = (((argb >>> 16) & 0xff) * alpha + ((dst >>> 16) & 0xff) * inverse) / 255;
+        int green = (((argb >>> 8) & 0xff) * alpha + ((dst >>> 8) & 0xff) * inverse) / 255;
+        int blue = ((argb & 0xff) * alpha + (dst & 0xff) * inverse) / 255;
+        int dstAlpha = alpha + (((dst >>> 24) & 0xff) * inverse) / 255;
+        data[pixelIndex] = (dstAlpha << 24) | (red << 16) | (green << 8) | blue;
+    }
+
+    private static void fillPixels(int[] data, int offset, int length, int argb) {
+        int end = offset + length;
+        if ((argb >>> 24) == 0xff) {
+            java.util.Arrays.fill(data, offset, end, argb);
+        } else {
+            for (int i = offset; i < end; i++) writePixel(data, i, argb);
+        }
     }
 
     public synchronized void fillRect(int x, int y, int w, int h) {
@@ -83,7 +86,7 @@ class BufferedImageGraphics extends Graphics2D {
         int ch = cy2 - cy1;
 
         for (int i = cy1; i < cy2; i++) {
-            GLMath.img_fill(bimg.getData().array(), cx1 + i * imgW, cw, curColor);
+            fillPixels(bimg.getRasterData(), cx1 + i * imgW, cw, curColor);
         }
     }
 
@@ -227,7 +230,7 @@ class BufferedImageGraphics extends Graphics2D {
                 y2 = clipY + clipH;
             }
             for (int i = y1; i <= y2; i++) {
-                GLMath.img_fill(bimg.getData().array(), i * bimg.getWidth() + x1, 1, curColor);
+                fillPixels(bimg.getRasterData(), i * bimg.getWidth() + x1, 1, curColor);
                 //writePixel(data, i * bimg.getWidth() + x1, curColor);
             }
         } else if (y1 == y2) { // 水平
@@ -245,7 +248,7 @@ class BufferedImageGraphics extends Graphics2D {
             if (x2 > clipX + clipW) {
                 x2 = clipX + clipW;
             }
-            GLMath.img_fill(bimg.getData().array(), y1 * bimg.getWidth() + x1, x2 - x1 + 1, curColor);
+            fillPixels(bimg.getRasterData(), y1 * bimg.getWidth() + x1, x2 - x1 + 1, curColor);
         } else {// 斜线
             int dy = Math.abs(y2 - y1);
             int dx = Math.abs(x2 - x1);
@@ -270,7 +273,7 @@ class BufferedImageGraphics extends Graphics2D {
                 for (int i = sx; i <= ex; i++) {
                     int ty = (y1 + ((y2 - y1) * (i - x1) / (x2 - x1)));
                     if (ty < clipY || ty > cy2) continue;
-                    GLMath.img_fill(bimg.getData().array(), ty * imgW + i, 1, curColor);
+                    fillPixels(bimg.getRasterData(), ty * imgW + i, 1, curColor);
                     //writePixel(data, ty * imgW + i, curColor);
                 }
             } else {
@@ -291,7 +294,7 @@ class BufferedImageGraphics extends Graphics2D {
                 for (int i = sy; i <= ey; i++) {
                     int tx = (x1 + ((x2 - x1) * (i - y1) / (y2 - y1)));
                     if (tx < clipX || tx > cx2) continue;
-                    GLMath.img_fill(bimg.getData().array(), i * imgW + tx, 1, curColor);
+                    fillPixels(bimg.getRasterData(), i * imgW + tx, 1, curColor);
                     //writePixel(data, i * imgW + tx, curColor);
                 }
             }
@@ -460,7 +463,7 @@ class BufferedImageGraphics extends Graphics2D {
             if (xe > clipX + clipW) {
                 xe = clipX + clipW;
             }
-            GLMath.img_fill(bimg.getData().array(), y * bimg.getWidth() + xs, xe - xs, curColor);
+            fillPixels(bimg.getRasterData(), y * bimg.getWidth() + xs, xe - xs, curColor);
         }
     }
 
@@ -497,7 +500,7 @@ class BufferedImageGraphics extends Graphics2D {
             if (xe > clipX + clipW) {
                 xe = clipX + clipW;
             }
-            GLMath.img_fill(bimg.getData().array(), y * bimg.getWidth() + xs, xe - xs, curColor);
+            fillPixels(bimg.getRasterData(), y * bimg.getWidth() + xs, xe - xs, curColor);
 
         }
     }
@@ -868,20 +871,33 @@ class BufferedImageGraphics extends Graphics2D {
         if (img instanceof BufferedImage) {
             BufferedImage cimg = ((BufferedImage) img);
             int srcW = cimg.getWidth();
-            byte[] dst = bimg.getData().array();
-            byte[] src = cimg.getData().array();
+            int srcH = cimg.getHeight();
+            int[] dst = bimg.getRasterData();
+            int[] src = cimg.getRasterData();
+            double m00 = transform.getScaleX();
+            double m01 = transform.getShearX();
+            double m02 = transform.getTranslateX() + transX;
+            double m10 = transform.getShearY();
+            double m11 = transform.getScaleY();
+            double m12 = transform.getTranslateY() + transY;
+            double determinant = m00 * m11 - m01 * m10;
+            if (determinant == 0) return true;
 
-            GLMath.img_draw(dst, imgW,
-                    src, srcW,
-                    clipX, clipY, clipW, clipH,
-                    (float) transform.getScaleX(),
-                    (float) transform.getShearX(),
-                    (float) transform.getTranslateX() + transX,
-                    (float) transform.getShearY(),
-                    (float) transform.getScaleY(),
-                    (float) transform.getTranslateY() + transY,
-                    1.0f,
-                    false, 0);
+            int minX = Math.max(clipX, 0);
+            int minY = Math.max(clipY, 0);
+            int maxX = Math.min(clipX + clipW, imgW);
+            int maxY = Math.min(clipY + clipH, imgH);
+            for (int y = minY; y < maxY; y++) {
+                for (int x = minX; x < maxX; x++) {
+                    double dx = x - m02;
+                    double dy = y - m12;
+                    int sourceX = (int) Math.floor((m11 * dx - m01 * dy) / determinant);
+                    int sourceY = (int) Math.floor((-m10 * dx + m00 * dy) / determinant);
+                    if (sourceX >= 0 && sourceY >= 0 && sourceX < srcW && sourceY < srcH) {
+                        writePixel(dst, y * imgW + x, src[sourceY * srcW + sourceX]);
+                    }
+                }
+            }
         } else {
             int debug = 1;
         }
@@ -926,20 +942,27 @@ class BufferedImageGraphics extends Graphics2D {
                                           ImageObserver observer) {
         if (img instanceof BufferedImage) {
             BufferedImage cimg = ((BufferedImage) img);
+            int[] dst = bimg.getRasterData();
+            int[] src = cimg.getRasterData();
             int srcW = cimg.getWidth();
-            byte[] dst = bimg.getData().array();
-            byte[] src = cimg.getData().array();
-            GLMath.img_draw(dst, imgW,
-                    src, srcW,
-                    dx1, dy1, dx2 - dx1, dy2 - dy1,
-                    (float) (dx2 - dx1) / (sx2 - sx1),
-                    (float) 0f,
-                    (float) -sx1,
-                    (float) 0f,
-                    (float) (dy2 - dy1) / (sy2 - sy1),
-                    (float) -sy1,
-                    1.0f,
-                    false, 0);
+            int srcH = cimg.getHeight();
+            int destWidth = dx2 - dx1;
+            int destHeight = dy2 - dy1;
+            if (destWidth == 0 || destHeight == 0) return true;
+            int startX = Math.max(Math.min(dx1, dx2), clipX);
+            int endX = Math.min(Math.max(dx1, dx2), clipX + clipW);
+            int startY = Math.max(Math.min(dy1, dy2), clipY);
+            int endY = Math.min(Math.max(dy1, dy2), clipY + clipH);
+            for (int y = startY; y < endY; y++) {
+                int sourceY = sy1 + (y - dy1) * (sy2 - sy1) / destHeight;
+                if (sourceY < 0 || sourceY >= srcH) continue;
+                for (int x = startX; x < endX; x++) {
+                    int sourceX = sx1 + (x - dx1) * (sx2 - sx1) / destWidth;
+                    if (sourceX >= 0 && sourceX < srcW && x >= 0 && y >= 0 && x < imgW && y < imgH) {
+                        writePixel(dst, y * imgW + x, src[sourceY * srcW + sourceX]);
+                    }
+                }
+            }
         }
         return true;
     }
