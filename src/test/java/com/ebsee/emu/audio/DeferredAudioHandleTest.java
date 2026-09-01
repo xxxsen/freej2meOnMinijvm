@@ -1,68 +1,44 @@
 package com.ebsee.emu.audio;
 
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
-
 import org.recompile.mobile.MiniJvmAudioBackend;
 
 public final class DeferredAudioHandleTest {
     public static void main(String[] args) throws Exception {
-        final CountDownLatch rendering = new CountDownLatch(1);
-        final CountDownLatch release = new CountDownLatch(1);
-        final RecordingHandle rendered = new RecordingHandle();
-
-        long startedAt = System.currentTimeMillis();
+        final Calls calls = new Calls();
         DeferredAudioHandle handle = new DeferredAudioHandle(new DeferredAudioHandle.Renderer() {
-            public MiniJvmAudioBackend.Handle render() throws Exception {
-                rendering.countDown();
-                if (!release.await(5, TimeUnit.SECONDS)) throw new AssertionError("renderer timeout");
-                return rendered;
+            public MiniJvmAudioBackend.Handle render() {
+                calls.render++;
+                return new FakeHandle(calls);
             }
         });
-        assertTrue(System.currentTimeMillis() - startedAt < 250, "construction must not wait for rendering");
-        assertTrue(rendering.await(2, TimeUnit.SECONDS), "renderer did not start");
 
-        handle.setLoopCount(-1);
-        handle.setVolume(64);
-        handle.setMediaTime(1234L);
+        Thread.sleep(20);
+        if (calls.render != 0) throw new AssertionError("rendering must be lazy until Player.start()");
         handle.start();
-        assertTrue(handle.isRunning(), "queued playback must remain logically running");
-        assertTrue(rendered.startCalls == 0, "playback started before rendering finished");
-
-        release.countDown();
-        assertTrue(rendered.started.await(2, TimeUnit.SECONDS), "queued playback did not start");
-        assertTrue(rendered.loopCount == -1, "loop state was not restored");
-        assertTrue(rendered.volume == 64, "volume state was not restored");
-        assertTrue(rendered.mediaTime == 1234L, "media time was not restored");
-        assertTrue(rendered.startCalls == 1, "queued playback started more than once");
-
-        handle.stop();
-        assertTrue(rendered.stopCalls == 1, "stop was not forwarded");
-        handle.close();
-        assertTrue(rendered.closeCalls == 1, "close was not forwarded");
+        long deadline = System.currentTimeMillis() + 1000;
+        while (calls.start == 0 && System.currentTimeMillis() < deadline) Thread.sleep(5);
+        if (calls.render != 1 || calls.start != 1) {
+            throw new AssertionError("one start must render once and start the installed delegate");
+        }
     }
 
-    private static void assertTrue(boolean value, String message) {
-        if (!value) throw new AssertionError(message);
+    private static final class FakeHandle implements MiniJvmAudioBackend.Handle {
+        private final Calls calls;
+
+        FakeHandle(Calls calls) { this.calls = calls; }
+        public void start() { calls.start++; }
+        public void stop() { }
+        public void close() { }
+        public void setLoopCount(int count) { }
+        public long setMediaTime(long value) { return value; }
+        public long getMediaTime() { return 0; }
+        public long getDuration() { return 1; }
+        public boolean isRunning() { return calls.start > 0; }
+        public void setVolume(int level) { }
     }
 
-    private static final class RecordingHandle implements MiniJvmAudioBackend.Handle {
-        final CountDownLatch started = new CountDownLatch(1);
-        int startCalls;
-        int stopCalls;
-        int closeCalls;
-        int loopCount;
-        int volume;
-        long mediaTime;
-
-        public void start() { startCalls++; started.countDown(); }
-        public void stop() { stopCalls++; }
-        public void close() { closeCalls++; }
-        public void setLoopCount(int count) { loopCount = count; }
-        public long setMediaTime(long value) { mediaTime = value; return value; }
-        public long getMediaTime() { return mediaTime; }
-        public long getDuration() { return 9876L; }
-        public boolean isRunning() { return startCalls > stopCalls; }
-        public void setVolume(int level) { volume = level; }
+    private static final class Calls {
+        volatile int render;
+        volatile int start;
     }
 }

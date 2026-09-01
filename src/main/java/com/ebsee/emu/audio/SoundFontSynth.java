@@ -1,16 +1,21 @@
 package com.ebsee.emu.audio;
 
-import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.util.Arrays;
+import java.util.Enumeration;
+import java.util.Hashtable;
 
 import org.mini.glfw.Glfw;
 
 /** Renders Standard MIDI files with TinySoundFont and the bundled GM bank. */
 public final class SoundFontSynth {
     private static final String SOUNDFONT_PATH = "/lib/TimGM6mb.sf2";
+    private static final int MAX_CACHE_BYTES = 16 * 1024 * 1024;
+    private static final Hashtable<MidiKey, CacheEntry> CACHE = new Hashtable<MidiKey, CacheEntry>();
     private static int nextFileId;
+    private static int cachedBytes;
 
     static {
         Glfw.loadLib();
@@ -20,6 +25,57 @@ public final class SoundFontSynth {
     }
 
     public static Result render(byte[] midiData) throws IOException {
+        MidiKey key = new MidiKey(midiData);
+        CacheEntry entry;
+        boolean owner = false;
+        synchronized (CACHE) {
+            entry = CACHE.get(key);
+            if (entry == null) {
+                entry = new CacheEntry();
+                CACHE.put(key, entry);
+                owner = true;
+            }
+        }
+
+        if (owner) {
+            try {
+                Result result = renderUncached(midiData);
+                synchronized (entry) {
+                    entry.result = result;
+                    entry.ready = true;
+                    entry.notifyAll();
+                }
+                retainCompleted(key, result.waveData.length);
+                return result;
+            } catch (Throwable problem) {
+                IOException failure = problem instanceof IOException
+                        ? (IOException) problem
+                        : new IOException("SoundFont MIDI renderer failed: " + problem);
+                synchronized (entry) {
+                    entry.failure = failure;
+                    entry.ready = true;
+                    entry.notifyAll();
+                }
+                synchronized (CACHE) { CACHE.remove(key); }
+                throw failure;
+            }
+        }
+
+        synchronized (entry) {
+            while (!entry.ready) {
+                try {
+                    entry.wait();
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw new IOException("Interrupted while waiting for shared MIDI rendering");
+                }
+            }
+            if (entry.failure != null) throw entry.failure;
+            return entry.result;
+        }
+    }
+
+    private static Result renderUncached(byte[] midiData) throws IOException {
         String wavePath = "/tmp/j2me-soundfont-" + nextId() + ".wav";
         File waveFile = new File(wavePath);
         int durationMillis = renderToWave(midiData, cString(SOUNDFONT_PATH), cString(wavePath));
@@ -30,18 +86,33 @@ public final class SoundFontSynth {
         try {
             FileInputStream input = new FileInputStream(waveFile);
             try {
-                ByteArrayOutputStream output = new ByteArrayOutputStream((int) Math.min(Integer.MAX_VALUE, waveFile.length()));
-                byte[] buffer = new byte[16384];
-                int count;
-                while ((count = input.read(buffer)) >= 0) {
-                    if (count > 0) output.write(buffer, 0, count);
+                long length = waveFile.length();
+                if (length <= 0 || length > Integer.MAX_VALUE) {
+                    throw new IOException("Invalid rendered wave length: " + length);
                 }
-                return new Result(output.toByteArray(), null, durationMillis);
+                byte[] waveData = ExactLengthReader.read(input, (int) length);
+                return new Result(waveData, null, durationMillis);
             } finally {
                 input.close();
             }
         } finally {
             waveFile.delete();
+        }
+    }
+
+    private static void retainCompleted(MidiKey keep, int bytes) {
+        synchronized (CACHE) {
+            cachedBytes += bytes;
+            if (cachedBytes <= MAX_CACHE_BYTES) return;
+            Enumeration<MidiKey> keys = CACHE.keys();
+            while (keys.hasMoreElements() && cachedBytes > MAX_CACHE_BYTES) {
+                MidiKey key = keys.nextElement();
+                if (key.equals(keep)) continue;
+                CacheEntry entry = CACHE.get(key);
+                if (entry != null && entry.ready && entry.result != null && CACHE.remove(key) != null) {
+                    cachedBytes -= entry.result.waveData.length;
+                }
+            }
         }
     }
 
@@ -88,6 +159,28 @@ public final class SoundFontSynth {
             this.waveData = waveData;
             this.wavePath = wavePath;
             this.durationMicros = durationMillis * 1000L;
+        }
+    }
+
+    private static final class CacheEntry {
+        Result result;
+        IOException failure;
+        boolean ready;
+    }
+
+    private static final class MidiKey {
+        private final byte[] data;
+        private final int hashCode;
+
+        MidiKey(byte[] data) {
+            this.data = data.clone();
+            this.hashCode = Arrays.hashCode(this.data);
+        }
+
+        public int hashCode() { return hashCode; }
+
+        public boolean equals(Object value) {
+            return value instanceof MidiKey && Arrays.equals(data, ((MidiKey) value).data);
         }
     }
 }

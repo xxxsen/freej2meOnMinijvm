@@ -3,42 +3,30 @@ package com.ebsee.emu.audio;
 import java.io.File;
 import java.io.FileInputStream;
 
-import javax.sound.sampled.AudioInputStream;
-import javax.sound.sampled.Clip;
-
 import org.recompile.mobile.MiniJvmAudioBackend;
 
-/** miniJVM media backend backed by TinySoundFont and miniaudio. */
+/** miniJVM media backend backed by TinySoundFont and browser Web Audio. */
 public final class MiniJvmAudioBackendImpl implements MiniJvmAudioBackend {
     public Handle create(byte[] data) throws Exception {
         final byte[] media = data;
+        if (!isMidi(media)) return new BrowserAudioHandle(media, -1);
         return new DeferredAudioHandle(new DeferredAudioHandle.Renderer() {
             public Handle render() throws Exception {
-                if (!isMidi(media)) return new ClipHandle(media);
-                SoundFontSynth.Result rendered = SoundFontSynth.renderToFile(media);
+                SoundFontSynth.Result rendered = SoundFontSynth.render(media);
                 System.out.println("[audio] SoundFont MIDI rendered");
-                return new ClipHandle(rendered.wavePath, rendered.durationMicros, true);
+                return new BrowserAudioHandle(rendered.waveData, rendered.durationMicros);
             }
         });
     }
 
     public Handle createFile(final String path) throws Exception {
-        return new DeferredAudioHandle(new DeferredAudioHandle.Renderer() {
-            public Handle render() throws Exception {
-                if (!isMidi(path)) return new ClipHandle(path, -1, true);
-                try {
-                    SoundFontSynth.Result rendered = SoundFontSynth.renderFile(path);
-                    System.out.println("[audio] SoundFont MIDI rendered");
-                    return new ClipHandle(rendered.wavePath, rendered.durationMicros, true);
-                } finally {
-                    new File(path).delete();
-                }
-            }
-        });
+        byte[] media = readFile(path);
+        new File(path).delete();
+        return create(media);
     }
 
     public void playTone(int note, int duration, int volume) throws Exception {
-        new ClipHandle(createToneWave(note, duration, volume)).start();
+        new BrowserAudioHandle(createToneWave(note, duration, volume), duration * 1000L).start();
     }
 
     private static boolean isMidi(byte[] data) {
@@ -46,11 +34,15 @@ public final class MiniJvmAudioBackendImpl implements MiniJvmAudioBackend {
                 && data[2] == 'h' && data[3] == 'd';
     }
 
-    private static boolean isMidi(String path) throws Exception {
-        FileInputStream input = new FileInputStream(path);
+    private static byte[] readFile(String path) throws Exception {
+        File file = new File(path);
+        long length = file.length();
+        if (length <= 0 || length > Integer.MAX_VALUE) {
+            throw new java.io.IOException("Invalid media file length: " + length);
+        }
+        FileInputStream input = new FileInputStream(file);
         try {
-            return input.read() == 'M' && input.read() == 'T'
-                    && input.read() == 'h' && input.read() == 'd';
+            return ExactLengthReader.read(input, (int) length);
         } finally {
             input.close();
         }
@@ -99,34 +91,4 @@ public final class MiniJvmAudioBackendImpl implements MiniJvmAudioBackend {
         target[offset + 3] = (byte) (value >>> 24);
     }
 
-    private static final class ClipHandle implements Handle {
-        private final Clip clip = new Clip();
-        private final String ownedPath;
-        private final long durationMicros;
-
-        ClipHandle(byte[] data) throws Exception {
-            ownedPath = null;
-            durationMicros = -1;
-            clip.open(new AudioInputStream(data));
-        }
-
-        ClipHandle(String path, long durationMicros, boolean ownFile) throws Exception {
-            this.ownedPath = ownFile ? path : null;
-            this.durationMicros = durationMicros;
-            clip.open(path);
-        }
-
-        public void start() { clip.start(); }
-        public void stop() { clip.stop(); }
-        public void close() {
-            clip.close();
-            if (ownedPath != null) new File(ownedPath).delete();
-        }
-        public void setLoopCount(int count) { clip.loop(count < 0 ? Clip.LOOP_CONTINUOUSLY : Math.max(0, count - 1)); }
-        public long setMediaTime(long value) { clip.setMicrosecondPosition(value); return clip.getMicrosecondPosition(); }
-        public long getMediaTime() { return clip.getMicrosecondPosition(); }
-        public long getDuration() { return durationMicros >= 0 ? durationMicros : clip.getMicrosecondLength(); }
-        public boolean isRunning() { return clip.isRunning(); }
-        public void setVolume(int level) { clip.setVolume(level / 100.0f); }
-    }
 }
