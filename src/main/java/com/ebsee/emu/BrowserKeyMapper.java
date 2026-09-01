@@ -32,15 +32,15 @@ final class BrowserKeyMapper {
             case 40:
             case 83: return standard(40);      // Down / S
             case 48: return number(96, '0');
-            case 49: return number(97, '1');
-            case 50: return number(98, '2');
-            case 51: return number(99, '3');
+            case 49: return number(103, '1');
+            case 50: return number(104, '2');
+            case 51: return number(105, '3');
             case 52: return number(100, '4');
             case 53: return number(101, '5');
             case 54: return number(102, '6');
-            case 55: return number(103, '7');
-            case 56: return number(104, '8');
-            case 57: return number(105, '9');
+            case 55: return number(97, '7');
+            case 56: return number(98, '8');
+            case 57: return number(99, '9');
             case 81:
             case 112: return new Mapping(81, 'q', LOCATION_STANDARD);  // Q / F1 -> left soft
             case 69:
@@ -48,15 +48,15 @@ final class BrowserKeyMapper {
             case 82:
             case 111: return number(82, '#');                           // R / numpad divide
             case 96: return number(96, '0');
-            case 97: return number(97, '1');
-            case 98: return number(98, '2');
-            case 99: return number(99, '3');
+            case 97: return number(103, '1');
+            case 98: return number(104, '2');
+            case 99: return number(105, '3');
             case 100: return number(100, '4');
             case 101: return number(101, '5');
             case 102: return number(102, '6');
-            case 103: return number(103, '7');
-            case 104: return number(104, '8');
-            case 105: return number(105, '9');
+            case 103: return number(97, '7');
+            case 104: return number(98, '8');
+            case 105: return number(99, '9');
             case 106: return number(69, '*');                            // numpad multiply
             default: return null;
         }

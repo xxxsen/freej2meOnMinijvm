@@ -214,6 +214,14 @@ public class EmuForm extends GForm implements GChildrenListener {
     @Override
     public void keyEventGlfw(int key, int scanCode, int action, int mods) {
         super.keyEventGlfw(key, scanCode, action, mods);
+        BrowserKeyMapper.Mapping browserMapping = BrowserKeyMapper.map(key, mods);
+        if (browserMapping != null) {
+            if (action == Glfw.GLFW_PRESS || action == Glfw.GLFW_RELEASE) {
+                dispathKeyEvent(action == Glfw.GLFW_PRESS, browserMapping.keyCode,
+                        browserMapping.character, browserMapping.location);
+            }
+            return;
+        }
         switch (key) {
             case Glfw.GLFW_KEY_A:
             case Glfw.GLFW_KEY_LEFT: {

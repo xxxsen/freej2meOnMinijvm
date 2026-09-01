@@ -8,7 +8,9 @@ public final class BrowserKeyMapperTest {
         assertMapping(81, 81, 'q', 0, "Q as left soft key");
         assertMapping(69, 87, 'w', 0, "E as right soft key");
         assertMapping(53, 101, '5', 4, "number row 5 as phone 5");
-        assertMapping(97, 97, '1', 4, "keypad 1 as phone 1");
+        assertMapping(49, 103, '1', 4, "number row 1 through FreeJ2ME's phone layout");
+        assertMapping(57, 99, '9', 4, "number row 9 through FreeJ2ME's phone layout");
+        assertMapping(97, 103, '1', 4, "keypad 1 through FreeJ2ME's phone layout");
 
         if (BrowserKeyMapper.map(66) != null) {
             throw new AssertionError("unbound browser keys must not reach the MIDlet");
