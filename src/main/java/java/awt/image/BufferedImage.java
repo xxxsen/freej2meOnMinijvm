@@ -2,6 +2,7 @@ package java.awt.image;
 
 import org.mini.gui.GImage;
 import org.mini.gui.ImageMutable;
+import org.mini.awt.ArgbPixelCodec;
 
 import javax.imageio.WritableRenderedImage;
 import java.awt.*;
@@ -11,7 +12,7 @@ import java.nio.ByteBuffer;
 /**
  * BufferedImage bytes array dependence ImageMutable
  * <p>
- * ImageMutable is ABGR format
+ * ImageMutable exposes RGBA bytes while Java image APIs use packed ARGB ints.
  */
 public class BufferedImage extends java.awt.Image implements WritableRenderedImage {
     public static final int TYPE_CUSTOM = 0;
@@ -53,30 +54,6 @@ public class BufferedImage extends java.awt.Image implements WritableRenderedIma
     private boolean pixelsInitialized;
 
     static final byte BYTE_PER_PIXEL = 4;
-
-    private static int nativeToArgb(int color) {
-        int nc = (0xff000000 & color);
-        nc |= (color >> 16) & 0xff;
-        nc |= (color) & 0x0000ff00;
-        nc |= (color & 0xff) << 16;
-        return nc;
-    }
-
-    private static int argbToNative(int color) {
-        int nc = (0xff000000 & color);
-        nc |= (color >> 16) & 0xff;
-        nc |= (color) & 0x0000ff00;
-        nc |= (color & 0xff) << 16;
-        return nc;
-    }
-
-    private static void writeArgb(byte[] data, int byteOffset, int argb) {
-        data[byteOffset] = (byte) (argb & 0xff);
-        data[byteOffset + 1] = (byte) ((argb >>> 8) & 0xff);
-        data[byteOffset + 2] = (byte) ((argb >>> 16) & 0xff);
-        data[byteOffset + 3] = (byte) ((argb >>> 24) & 0xff);
-    }
-
 
     public BufferedImage(int width,
                          int height,
@@ -246,10 +223,7 @@ public class BufferedImage extends java.awt.Image implements WritableRenderedIma
         byte[] data = gimg.getData().array();
         for (int i = 0; i < pixels.length; i++) {
             int offset = i * BYTE_PER_PIXEL;
-            pixels[i] = ((data[offset + 3] & 0xff) << 24)
-                    | ((data[offset + 2] & 0xff) << 16)
-                    | ((data[offset + 1] & 0xff) << 8)
-                    | (data[offset] & 0xff);
+            pixels[i] = ArgbPixelCodec.read(data, offset);
         }
         pixelsInitialized = true;
     }
@@ -262,7 +236,7 @@ public class BufferedImage extends java.awt.Image implements WritableRenderedIma
         if (!pixelsInitialized) return;
         byte[] data = gimg.getData().array();
         for (int i = 0; i < pixels.length; i++) {
-            writeArgb(data, i * BYTE_PER_PIXEL, pixels[i]);
+            ArgbPixelCodec.write(data, i * BYTE_PER_PIXEL, pixels[i]);
         }
     }
 }
