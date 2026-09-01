@@ -11,21 +11,30 @@ import org.recompile.mobile.MiniJvmAudioBackend;
 /** miniJVM media backend backed by TinySoundFont and miniaudio. */
 public final class MiniJvmAudioBackendImpl implements MiniJvmAudioBackend {
     public Handle create(byte[] data) throws Exception {
-        if (!isMidi(data)) return new ClipHandle(data);
-        SoundFontSynth.Result rendered = SoundFontSynth.renderToFile(data);
-        System.out.println("[audio] SoundFont MIDI rendered");
-        return new ClipHandle(rendered.wavePath, rendered.durationMicros, true);
+        final byte[] media = data;
+        return new DeferredAudioHandle(new DeferredAudioHandle.Renderer() {
+            public Handle render() throws Exception {
+                if (!isMidi(media)) return new ClipHandle(media);
+                SoundFontSynth.Result rendered = SoundFontSynth.renderToFile(media);
+                System.out.println("[audio] SoundFont MIDI rendered");
+                return new ClipHandle(rendered.wavePath, rendered.durationMicros, true);
+            }
+        });
     }
 
-    public Handle createFile(String path) throws Exception {
-        if (!isMidi(path)) return new ClipHandle(path, -1, true);
-        try {
-            SoundFontSynth.Result rendered = SoundFontSynth.renderFile(path);
-            System.out.println("[audio] SoundFont MIDI rendered");
-            return new ClipHandle(rendered.wavePath, rendered.durationMicros, true);
-        } finally {
-            new File(path).delete();
-        }
+    public Handle createFile(final String path) throws Exception {
+        return new DeferredAudioHandle(new DeferredAudioHandle.Renderer() {
+            public Handle render() throws Exception {
+                if (!isMidi(path)) return new ClipHandle(path, -1, true);
+                try {
+                    SoundFontSynth.Result rendered = SoundFontSynth.renderFile(path);
+                    System.out.println("[audio] SoundFont MIDI rendered");
+                    return new ClipHandle(rendered.wavePath, rendered.durationMicros, true);
+                } finally {
+                    new File(path).delete();
+                }
+            }
+        });
     }
 
     public void playTone(int note, int duration, int volume) throws Exception {
