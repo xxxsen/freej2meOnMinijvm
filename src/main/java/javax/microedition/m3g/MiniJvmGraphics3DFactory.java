@@ -6,8 +6,6 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.util.Vector;
 
-import javax.microedition.m3g.base.M3GMath;
-
 import org.mini.glwrap.GLFrameBuffer;
 import org.mini.gui.ImageMutable;
 import org.mini.gui.GForm;
@@ -129,11 +127,15 @@ public final class MiniJvmGraphics3DFactory implements Graphics3D.BackendFactory
         private final boolean glAvailable;
         private final FrameState frame = new FrameState();
         private final GlRenderer renderer = new GlRenderer();
+        private boolean reportedWebglFrame;
+        private String reportedFallbackReason;
 
         MiniJvmGlBackend(Graphics3D owner, Graphics3D.Backend softwareFallback) {
             this.owner = owner;
             this.softwareFallback = softwareFallback;
             this.glAvailable = isGlAvailable();
+            System.out.println("[J2ME_3D_V1] api=M3G backend="
+                    + (glAvailable ? "WEBGL2" : "SOFTWARE") + " event=created items=0");
         }
 
         public void bindTarget(Object target, boolean depthBuffer, int hints) {
@@ -149,6 +151,7 @@ public final class MiniJvmGraphics3DFactory implements Graphics3D.BackendFactory
                 frame.softwarePassthrough = true;
                 frame.fallbackReason = "glUnavailableInClear";
                 frame.fallbackDetail = "org.mini.gl.GL unavailable";
+                reportFallback(frame.fallbackReason, 0);
                 return;
             }
 
@@ -251,6 +254,7 @@ public final class MiniJvmGraphics3DFactory implements Graphics3D.BackendFactory
                             : "OpenGL thread unavailable";
                 }
                 replaySoftware();
+                reportFallback(frame.fallbackReason, frame.items.size());
                 frame.reset();
                 return;
             }
@@ -270,8 +274,22 @@ public final class MiniJvmGraphics3DFactory implements Graphics3D.BackendFactory
                 frame.fallbackReason = "glRenderFailure";
                 frame.fallbackDetail = String.valueOf(failure[0]);
                 replaySoftware();
+                reportFallback(frame.fallbackReason, frame.items.size());
+            } else if (!reportedWebglFrame) {
+                reportedWebglFrame = true;
+                System.out.println("[J2ME_3D_V1] api=M3G backend=WEBGL2 event=frame items=" + frame.items.size());
             }
             frame.reset();
+        }
+
+        private void reportFallback(String reason, int items) {
+            String stableReason = reason != null ? reason : "unknown";
+            if (stableReason.equals(reportedFallbackReason)) {
+                return;
+            }
+            reportedFallbackReason = stableReason;
+            System.out.println("[J2ME_3D_V1] api=M3G backend=SOFTWARE event=fallback items="
+                    + items + " reason=" + stableReason);
         }
 
         private void replaySoftware() {
@@ -2617,12 +2635,6 @@ public final class MiniJvmGraphics3DFactory implements Graphics3D.BackendFactory
         private BufferedImage resolveTargetImage(Object target) {
             if (target instanceof PlatformGraphics) {
                 return ((PlatformGraphics) target).getCanvas();
-            }
-            if (target instanceof javax.microedition.lcdui.Graphics) {
-                javax.microedition.lcdui.Graphics graphics = (javax.microedition.lcdui.Graphics) target;
-                if (graphics.platformGraphics != null) {
-                    return graphics.platformGraphics.getCanvas();
-                }
             }
             return null;
         }
