@@ -5,6 +5,8 @@ import java.util.Map;
 
 public final class CompatibilityProfileReaderTest {
     public static void main(String[] args) throws Exception {
+        check(CompatibilityProfileReader.PROFILE_PATH.startsWith("/appdata/freej2meonminijvm.jar/"),
+                "profile remains inside the miniJVM application sandbox");
         Map<String, String> profile = CompatibilityProfileReader.read(new ByteArrayInputStream(
                 ("schema=1\nwidth=128\nheight=144\nphone=Nokia\nunknown=ignored\n")
                         .getBytes("ISO-8859-1")));

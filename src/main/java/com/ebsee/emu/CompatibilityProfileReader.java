@@ -9,7 +9,7 @@ import java.util.Properties;
 
 /** Reads the bounded host-generated profile before the MIDlet is loaded. */
 public final class CompatibilityProfileReader {
-    public static final String PROFILE_PATH = "/j2me-web-profile.properties";
+    public static final String PROFILE_PATH = "/appdata/freej2meonminijvm.jar/j2me-web-profile.properties";
 
     private CompatibilityProfileReader() {
     }
