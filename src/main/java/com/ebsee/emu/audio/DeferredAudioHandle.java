@@ -21,7 +21,29 @@ final class DeferredAudioHandle implements MiniJvmAudioBackend.Handle {
     private long mediaTime;
 
     DeferredAudioHandle(final Renderer renderer) {
+        this(renderer, true);
+    }
+
+    DeferredAudioHandle(final Renderer renderer, boolean prepare) {
         this.renderer = renderer;
+        if (prepare) beginRendering();
+    }
+
+    private synchronized void beginRendering() {
+        if (renderingStarted || closed) return;
+        renderingStarted = true;
+        Thread worker = new Thread(new Runnable() {
+            public void run() {
+                try {
+                    install(renderer.render());
+                } catch (Throwable failure) {
+                    System.out.println("[audio] asynchronous media setup failed: " + failure);
+                }
+            }
+        }, "j2me-audio-renderer");
+        /* miniJVM's unstarted Thread.isAlive() is not safe in every runtime;
+           setDaemon() calls it and used to abort menu MIDI playback. */
+        worker.start();
     }
 
     private synchronized void install(MiniJvmAudioBackend.Handle rendered) {
@@ -41,20 +63,7 @@ final class DeferredAudioHandle implements MiniJvmAudioBackend.Handle {
         startRequested = true;
         if (delegate != null) {
             delegate.start();
-        } else if (!renderingStarted) {
-            renderingStarted = true;
-            Thread worker = new Thread(new Runnable() {
-                public void run() {
-                    try {
-                        install(renderer.render());
-                    } catch (Throwable failure) {
-                        System.out.println("[audio] asynchronous media setup failed: " + failure);
-                    }
-                }
-            }, "j2me-audio-renderer");
-            worker.setDaemon(true);
-            worker.start();
-        }
+        } else beginRendering();
     }
 
     public synchronized void stop() {

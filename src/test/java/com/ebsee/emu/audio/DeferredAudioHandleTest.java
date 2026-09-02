@@ -12,10 +12,13 @@ public final class DeferredAudioHandleTest {
             }
         });
 
-        Thread.sleep(20);
-        if (calls.render != 0) throw new AssertionError("rendering must be lazy until Player.start()");
-        handle.start();
         long deadline = System.currentTimeMillis() + 1000;
+        while (calls.render == 0 && System.currentTimeMillis() < deadline) Thread.sleep(5);
+        if (calls.render != 1 || calls.start != 0) {
+            throw new AssertionError("construction must prepare media without starting playback");
+        }
+        handle.start();
+        deadline = System.currentTimeMillis() + 1000;
         while (calls.start == 0 && System.currentTimeMillis() < deadline) Thread.sleep(5);
         if (calls.render != 1 || calls.start != 1) {
             throw new AssertionError("one start must render once and start the installed delegate");
