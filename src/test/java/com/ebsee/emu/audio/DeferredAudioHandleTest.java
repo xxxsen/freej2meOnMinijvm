@@ -4,6 +4,11 @@ import org.recompile.mobile.MiniJvmAudioBackend;
 
 public final class DeferredAudioHandleTest {
     public static void main(String[] args) throws Exception {
+        verifyPreparedHandle();
+        verifyLazyHandle();
+    }
+
+    private static void verifyPreparedHandle() throws Exception {
         final Calls calls = new Calls();
         DeferredAudioHandle handle = new DeferredAudioHandle(new DeferredAudioHandle.Renderer() {
             public MiniJvmAudioBackend.Handle render() {
@@ -22,6 +27,27 @@ public final class DeferredAudioHandleTest {
         while (calls.start == 0 && System.currentTimeMillis() < deadline) Thread.sleep(5);
         if (calls.render != 1 || calls.start != 1) {
             throw new AssertionError("one start must render once and start the installed delegate");
+        }
+    }
+
+    private static void verifyLazyHandle() throws Exception {
+        final Calls calls = new Calls();
+        DeferredAudioHandle handle = new DeferredAudioHandle(new DeferredAudioHandle.Renderer() {
+            public MiniJvmAudioBackend.Handle render() {
+                calls.render++;
+                return new FakeHandle(calls);
+            }
+        }, false);
+
+        Thread.sleep(25);
+        if (calls.render != 0) {
+            throw new AssertionError("lazy media must not render before playback is requested");
+        }
+        handle.start();
+        long deadline = System.currentTimeMillis() + 1000;
+        while (calls.start == 0 && System.currentTimeMillis() < deadline) Thread.sleep(5);
+        if (calls.render != 1 || calls.start != 1) {
+            throw new AssertionError("lazy media must render once when playback starts");
         }
     }
 

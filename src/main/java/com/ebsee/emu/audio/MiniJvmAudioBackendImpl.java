@@ -7,22 +7,7 @@ import org.recompile.mobile.MiniJvmAudioBackend;
 
 /** miniJVM media backend backed by TinySoundFont and browser Web Audio. */
 public final class MiniJvmAudioBackendImpl implements MiniJvmAudioBackend {
-    public MiniJvmAudioBackendImpl() {
-        /* miniJVM links the MIDI renderer and its deferred handle lazily. That
-           first linkage is expensive enough to block some old MIDlets in
-           createPlayer(), so pay it once while the backend is installed. */
-        try {
-            create(new byte[] { 'M', 'T', 'h', 'd' }, false).close();
-        } catch (Exception failure) {
-            System.out.println("[audio] MIDI backend warm-up failed: " + failure);
-        }
-    }
-
     public Handle create(byte[] data) throws Exception {
-        return create(data, true);
-    }
-
-    private Handle create(byte[] data, boolean prepare) throws Exception {
         final byte[] media = data;
         if (!isMidi(media)) return new BrowserAudioHandle(media, -1);
         return new DeferredAudioHandle(new DeferredAudioHandle.Renderer() {
@@ -31,7 +16,7 @@ public final class MiniJvmAudioBackendImpl implements MiniJvmAudioBackend {
                 System.out.println("[audio] SoundFont MIDI rendered");
                 return new BrowserAudioHandle(rendered.waveData, rendered.durationMicros);
             }
-        }, prepare);
+        }, false);
     }
 
     public Handle createFile(final String path) throws Exception {
