@@ -119,31 +119,30 @@ public final class MiniJvmMicro3dGlBackend implements Micro3dBackend {
 
     @Override
     public boolean isAvailable() {
-        // GL must be present AND we must be able to schedule onto the GL thread.
+        // The app can construct Graphics3D before GCallBack has published its
+        // OpenGL thread. GForm queues remain safe at that point and will be
+        // drained once the browser loop starts, so availability is based on the
+        // GL API itself (the same rule used by the M3G backend).
         try {
             Class.forName("org.mini.gl.GL");
         } catch (Throwable t) {
             reportAvailability(false);
             return false;
         }
-        boolean available = isGlThreadReady();
+        boolean available = isApiPresenceSufficientForAvailability(true);
         reportAvailability(available);
         return available;
+    }
+
+    static boolean isApiPresenceSufficientForAvailability(boolean glApiPresent) {
+        return glApiPresent;
     }
 
     private void reportAvailability(boolean available) {
         if (availabilityReported) return;
         availabilityReported = true;
         System.out.println("[J2ME_3D_V1] api=MASCOT backend=" +
-                (available ? "WEBGL2" : "SOFTWARE") + " event=created");
-    }
-
-    private static boolean isGlThreadReady() {
-        try {
-            return GCallBack.getInstance().getOpenglThread() != null;
-        } catch (Throwable ignored) {
-            return false;
-        }
+                (available ? "WEBGL2" : "SOFTWARE") + " event=created items=0");
     }
 
     @Override
@@ -213,7 +212,8 @@ public final class MiniJvmMicro3dGlBackend implements Micro3dBackend {
             t.printStackTrace();
             if (!fallbackReported) {
                 fallbackReported = true;
-                System.out.println("[J2ME_3D_V1] api=MASCOT backend=SOFTWARE event=fallback");
+                System.out.println("[J2ME_3D_V1] api=MASCOT backend=SOFTWARE event=fallback items="
+                        + frame.items.size() + " reason=rendererException");
             }
         }
     }

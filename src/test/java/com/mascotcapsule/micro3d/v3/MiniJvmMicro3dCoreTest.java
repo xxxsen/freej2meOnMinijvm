@@ -4,7 +4,9 @@ import com.mascotcapsule.micro3d.v3.base.FrameState;
 import com.mascotcapsule.micro3d.v3.base.Micro3dBackend;
 import java.io.InputStream;
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import org.recompile.mobile.PlatformGraphics;
+import com.mascotcapsule.micro3d.v3.base.MiniJvmMicro3dGlBackend;
 
 public final class MiniJvmMicro3dCoreTest {
     private static final String FACTORY_PROPERTY = "freej2me.micro3d.backend.factory";
@@ -21,6 +23,16 @@ public final class MiniJvmMicro3dCoreTest {
         assertConstructor(Texture.class);
         assertConstructor(Texture.class, InputStream.class, Boolean.TYPE);
         assertMethod(Vector3D.class, "normalize");
+
+        if (!(Graphics3D.createBackendFactory(null) instanceof MiniJvmMicro3dFactory)) {
+            throw new AssertionError("default MascotCapsule backend must not depend on reflective class loading");
+        }
+        Method availability = MiniJvmMicro3dGlBackend.class.getDeclaredMethod(
+                "isApiPresenceSufficientForAvailability", Boolean.TYPE);
+        availability.setAccessible(true);
+        if (!((Boolean)availability.invoke(null, Boolean.TRUE)).booleanValue()) {
+            throw new AssertionError("MascotCapsule GL availability must not depend on callback thread publication");
+        }
 
         System.setProperty(FACTORY_PROPERTY, RecordingFactory.class.getName());
         try {

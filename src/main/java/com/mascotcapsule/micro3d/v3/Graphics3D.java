@@ -75,18 +75,31 @@ public class Graphics3D {
 
     private static Micro3dBackend createBackend() {
         try {
-            String factoryName = System.getProperty(BACKEND_FACTORY_PROPERTY, MINIJVM_BACKEND_FACTORY);
-            Class<?> factoryClass = Class.forName(factoryName);
-            BackendFactory factory = (BackendFactory)factoryClass.newInstance();
+            String factoryName = System.getProperty(BACKEND_FACTORY_PROPERTY);
+            BackendFactory factory = createBackendFactory(factoryName);
             Micro3dBackend gl = factory.create();
             if (gl != null && gl.isAvailable()) {
                 return gl;
             }
         }
         catch (Throwable throwable) {
-            // empty catch block
+            System.out.println("[J2ME_3D_V1] api=MASCOT backend=SOFTWARE event=fallback items=0 reason="
+                    + throwable.getClass().getName());
         }
         return new SoftwareMicro3dBackend();
+    }
+
+    static BackendFactory createBackendFactory(String factoryName) throws Exception {
+        if (factoryName == null || factoryName.length() == 0 || MINIJVM_BACKEND_FACTORY.equals(factoryName)) {
+            // Keep the browser backend independent of the MIDlet class loader. Some
+            // games install their own loader before first touching Graphics3D, which
+            // makes reflective lookup of a platform class fail even though it is in
+            // the adapter JAR.
+            return new MiniJvmMicro3dFactory();
+        } else {
+            Class<?> factoryClass = Class.forName(factoryName);
+            return (BackendFactory)factoryClass.newInstance();
+        }
     }
 
     public final synchronized void bind(Graphics graphics) {
@@ -233,5 +246,3 @@ public class Graphics3D {
         public Micro3dBackend create();
     }
 }
-
-
