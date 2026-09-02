@@ -24,6 +24,10 @@ public final class SoundFontSynth {
     private SoundFontSynth() {
     }
 
+    static void initialize() {
+        // Forces native linkage outside the asynchronous rendering worker.
+    }
+
     public static Result render(byte[] midiData) throws IOException {
         MidiKey key = new MidiKey(midiData);
         CacheEntry entry;

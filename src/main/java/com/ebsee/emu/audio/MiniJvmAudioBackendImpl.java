@@ -7,6 +7,10 @@ import org.recompile.mobile.MiniJvmAudioBackend;
 
 /** miniJVM media backend backed by TinySoundFont and browser Web Audio. */
 public final class MiniJvmAudioBackendImpl implements MiniJvmAudioBackend {
+    public MiniJvmAudioBackendImpl() {
+        SoundFontSynth.initialize();
+    }
+
     public Handle create(byte[] data) throws Exception {
         final byte[] media = data;
         if (!isMidi(media)) return new BrowserAudioHandle(media, -1);
