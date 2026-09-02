@@ -103,6 +103,9 @@ public final class MiniJvmMicro3dGlBackend implements Micro3dBackend {
     private byte[] readBackBuffer = new byte[0];
     // reused across frames to avoid per-frame allocation
     private GlStateSaver stateSaver;
+    private boolean availabilityReported;
+    private boolean frameReported;
+    private boolean fallbackReported;
     private final int[] boundFboCheck = new int[1];
     // scratch arrays for bulk FloatBuffer/ByteBuffer -> array copies (avoids
     // per-element JNI get() in the hot vertex-assembly loop).
@@ -120,9 +123,19 @@ public final class MiniJvmMicro3dGlBackend implements Micro3dBackend {
         try {
             Class.forName("org.mini.gl.GL");
         } catch (Throwable t) {
+            reportAvailability(false);
             return false;
         }
-        return isGlThreadReady();
+        boolean available = isGlThreadReady();
+        reportAvailability(available);
+        return available;
+    }
+
+    private void reportAvailability(boolean available) {
+        if (availabilityReported) return;
+        availabilityReported = true;
+        System.out.println("[J2ME_3D_V1] api=MASCOT backend=" +
+                (available ? "WEBGL2" : "SOFTWARE") + " event=created");
     }
 
     private static boolean isGlThreadReady() {
@@ -168,12 +181,7 @@ public final class MiniJvmMicro3dGlBackend implements Micro3dBackend {
     }
 
     private static BufferedImage canvasOf(javax.microedition.lcdui.Graphics g) {
-        PlatformGraphics pg;
-        if (g instanceof PlatformGraphics) {
-            pg = (PlatformGraphics) g;
-        } else {
-            pg = (PlatformGraphics) g.platformGraphics;
-        }
+        PlatformGraphics pg = (PlatformGraphics) g;
         return pg.getCanvas();
     }
 
@@ -203,6 +211,10 @@ public final class MiniJvmMicro3dGlBackend implements Micro3dBackend {
             // here would leave Graphics3D permanently "Target already bound" and the
             // app would spam the same failure every frame. Fall back gracefully.
             t.printStackTrace();
+            if (!fallbackReported) {
+                fallbackReported = true;
+                System.out.println("[J2ME_3D_V1] api=MASCOT backend=SOFTWARE event=fallback");
+            }
         }
     }
 
@@ -273,6 +285,11 @@ public final class MiniJvmMicro3dGlBackend implements Micro3dBackend {
                 }
             }
             readBack();
+            if (!frameReported) {
+                frameReported = true;
+                System.out.println("[J2ME_3D_V1] api=MASCOT backend=WEBGL2 event=frame items=" +
+                        frame.items.size());
+            }
         } finally {
             glUseProgram(0);
             glBindVertexArray(0);
