@@ -14,6 +14,7 @@ import com.ebsee.emu.audio.MiniJvmAudioBackendImpl;
 import java.io.File;
 import java.io.FileFilter;
 import java.io.FileOutputStream;
+import java.util.Map;
 
 public class J2meEmu extends GApplication implements XuiAppHolder {
 
@@ -130,7 +131,8 @@ public class J2meEmu extends GApplication implements XuiAppHolder {
         String dataPath = args.length > 1 ? args[1] : "/home/web_user";
         MobilePlatform.miniJvmAudioBackend = new MiniJvmAudioBackendImpl();
         System.out.println("miniJVM audio backend installed");
-        new MiniJvmFrontend(jarLocation, dataPath);
+        Map<String, String> profile = CompatibilityProfileReader.read();
+        new MiniJvmFrontend(jarLocation, dataPath, 240, 320, 60, profile);
     }
 
     @Override
