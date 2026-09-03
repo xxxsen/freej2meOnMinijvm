@@ -40,7 +40,7 @@ public final class CompatibilityProfileReader {
         if (!"1".equals(schema)) return result;
         String[] keys = {
             "width", "height", "fps", "phone", "rotation", "sound",
-            "m3g.backend", "m3g.halfResolution"
+            "m3g.backend", "m3g.halfResolution", "midlet.launch"
         };
         for (int index = 0; index < keys.length; index++) {
             String value = properties.getProperty(keys[index]);
